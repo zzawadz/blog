@@ -1,0 +1,154 @@
+---
+title: Make asynchronous call in shiny.
+author: ~
+date: '2017-04-24'
+slug: ''
+categories: []
+tags: []
+---
+
+Sometimes when you are creating shiny's application, and you need to allow the user to perform a long computation (e.g. some model fitting). However, time-demanding calculations are quite problematic, because the whole session needs to wait until it finishes, blocking any other work in different part of the system. 
+
+Fortunately, there is a way to perform an asynchronous job in shiny, so the long-running task can be resolved in the background without blocking the application. To take advantage of that feature we need to learn something about the future package.
+
+The future allows to schedule some code to evaluation in other R's thread in a very straightforward way. To detailed explanation, please read this vignette https://cran.r-project.org/web/packages/future/vignettes/future-1-overview.html. In this article, we need just some most basic functionalities.
+
+Firstly we need to load the package and create an execution plan. See the following code:
+
+```{r}
+library(future)
+plan(multiprocess)
+
+a <- 10
+
+# Future automatically exports all needed variables.
+ft <- future({
+  Sys.sleep(1)
+  a * 10
+})
+
+# Checks if the value is ready.
+resolved(ft)
+
+# Overwrite the value of "a".
+a <- 0
+print(paste("a is equal:", a))
+# Future's result is based on the old value of the "a" variable:
+print(paste("future's value is equal:", value(ft)))
+```
+
+Ok. We know how to run an asynchronous job in regular R session. However, we cannot use that strategy inside shiny, because we still need to wait inside reactive to return the value.  Fortunately shiny has an `invalidateLater` functionality, which allows us to schedule current reactive context to re-execution. 
+
+So we can use a very simple pattern - reactiveValues is used to store currently executed future's call.  If it is value is equal to null, that mean there's no running job so that we can schedule a new one. If the value is still unresolved, we use *invalidateLater* to schedule re-execution after few moments. When the job is ready, we can return the value. See the following listing for the simple example:
+
+```{r, eval=FALSE}
+future <- reactiveValues(future = NULL)
+
+output$FuturePlot <- renderPlot({
+   input$MakePlot
+   
+   x <- NULL
+   
+  isolate({
+    
+    if(is.null(future$future)) {
+      future$future <- future({
+        Sys.sleep(5)
+        cbind(rnorm(1000), rnorm(1000))
+      })
+      cat("Work scheduled\n")
+    } else if(!resolved(future$future)) {
+      cat("Waiting\n")
+    } else {
+      x <- value(future$future)
+      future$future <- NULL
+      cat("Done!\n")
+    }
+  })
+  
+  if(is.null(x)) invalidateLater(1000) # Wait 1s
+  
+  req(x) # Stop there if x is still null
+  plot(x)
+})
+
+```
+
+There's working app:
+
+```{r, eval=FALSE}
+# Define UI for application that draws a histogram
+ui <- fluidPage(
+   
+   # Application title
+   titlePanel("Old Faithful Geyser Data"),
+   
+   # Sidebar with a slider input for number of bins 
+   sidebarLayout(
+      sidebarPanel(
+         sliderInput("bins",
+                     "Number of bins:",
+                     min = 1,
+                     max = 50,
+                     value = 30),
+        actionButton("MakePlot", "MakePlot")
+      ),
+      
+      # Show a plot of the generated distribution
+      mainPanel(
+         fluidRow(
+           column(6, plotOutput("distPlot")),
+           column(6, plotOutput("FuturePlot")))
+      )
+   )
+)
+
+# Define server logic required to draw a histogram
+server <- function(input, output) {
+   
+   output$distPlot <- renderPlot({
+      # generate bins based on input$bins from ui.R
+      x    <- faithful[, 2] 
+      bins <- seq(min(x), max(x), length.out = input$bins + 1)
+      
+      # draw the histogram with the specified number of bins
+      hist(x, breaks = bins, col = 'darkgray', border = 'white')
+   })
+   
+   
+   future <- reactiveValues(future = NULL)
+   
+   output$FuturePlot <- renderPlot({
+     input$MakePlot
+     
+     x <- NULL
+     
+    isolate({
+      
+      if(is.null(future$future)) {
+        future$future <- future({
+          Sys.sleep(5)
+          cbind(rnorm(1000), rnorm(1000))
+        })
+        cat("Work scheduled\n")
+      } else if(!resolved(future$future)) {
+        cat("Waiting\n")
+      } else {
+        x <- value(future$future)
+        future$future <- NULL
+        cat("Done!\n")
+      }
+    })
+    
+    if(is.null(x)) invalidateLater(1000) # Wait 1s
+    
+    req(x) # Stop there if x is still null
+    plot(x)
+  })
+   
+}
+
+shinyApp(ui = ui, server = server)
+```
+
+I hope you enjoyed that post, and found it usefull. Welcome in my blog:)
