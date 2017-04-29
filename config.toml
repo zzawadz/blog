@@ -1,9 +1,9 @@
 baseurl = "/"
 relativeurls = true
 languageCode = "en-us"
-title = "A Hugo website"
+title = "zstat.pl - blog"
 theme = "hugo-lithium-theme"
-googleAnalytics = ""
+googleAnalytics = "UA-80778306-3"
 disqusShortname = ""
 ignoreFiles = ["\\.Rmd$", "_files$", "_cache$"]
 
