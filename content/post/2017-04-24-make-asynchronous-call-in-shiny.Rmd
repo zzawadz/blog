@@ -79,7 +79,9 @@ output$FuturePlot <- renderPlot({
 
 ```
 
-There's working app:
+## Putting it all together.
+
+There's the working app:
 
 ```{r, eval=FALSE}
 # Define UI for application that draws a histogram
