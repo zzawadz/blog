@@ -1,0 +1,187 @@
+---
+title: "Updated vectors in R 3.4.0"
+date: '2017-05-06'
+author: Zygmunt Zawadzki
+output: html_document
+categories: 
+  - R
+tags:
+  - R
+  - performance
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, dev = "CairoSVG", echo = FALSE, message = FALSE, warning = FALSE, fig.width = 6, fig.height = 4)
+```
+
+The last update version of R comes with a small update of vector behavior when the new value is inserted just after the last element. See the entry from the announcement (https://stat.ethz.ch/pipermail/r-announce/2017/000612.html):
+
+```
+* Assigning to an element of a vector beyond the current length now
+     over-allocates by a small fraction. The new vector is marked
+     internally as growable, and the true length of the new vector is
+     stored in the truelength field. This makes building up a vector
+     result by assigning to the next element beyond the current length
+     more efficient, though pre-allocating is still preferred.  The
+     implementation is subject to change and not intended to be used
+     in packages at this time.
+```
+
+In this post, I'll try to show how does this work in practice.
+
+## Functions used in benchmark
+
+To test the new functionality I created three simple functions which add a new element at the end of the vector in three different ways.
+
+- Assign new element using `[[]]` operator:
+
+```{r, echo=TRUE}
+
+fnc_assign <- function(y) {
+  x <- NULL
+  for (i in y) {
+    x[[i]] <- i
+  }
+  x
+}
+```
+
+- Use `c(...)` function:
+
+```{r, echo=TRUE}
+fnc_combines <- function(y) {
+  x <- NULL
+  for (i in y) {
+    x <- c(x, i)
+  }
+  x
+}
+```
+
+- Pre-allocate memory:
+
+```{r, echo=TRUE}
+fnc_prealloc <- function(y) {
+  x <- numeric(length(y))
+  for (i in y) {
+    x[[i]] <- i
+  }
+  x
+}
+```
+
+## Testing framework
+
+I created simple bash scripts to download and compile two versions of the of R. The testing code was executed in both versions. All the code used to create this analysis is available in GitHub repository - https://github.com/zzawadz/blog-entry-vector-speed.
+
+## Results
+
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(Cairo)
+library(magrittr)
+library(knitr)
+
+files <- dir("../../data/data-2017-05-06/", full.names = TRUE)
+
+size.idx <- grep("size", files)
+
+files.time <- files[-size.idx]
+files.size <- files[size.idx]
+
+read_data <- function(files) {
+  result <- lapply(files, function(x) {
+    name <- tail(strsplit(basename(x), split = "-")[[1]], 1)
+    name <- gsub(name, pattern = ".txt", replacement = "")
+    name <- paste0("R-", name)
+    tbl <- read.table(x)
+    tbl %<>% mutate(Time = Time / 1e6)
+    cbind(Version = name, tbl)
+  })
+
+  Reduce(rbind, result)
+}
+```
+
+```{r}
+time.table <- read_data(files.time)
+
+make_plot <- function(dt){
+  p <- ggplot(dt) + geom_boxplot(aes(fill = Version, y = Time, x = Fnc))
+  p + scale_fill_manual(values = c("R-3.3.3" = "#E41A1C", "R-3.4.0" = "#377EB8"))
+}
+
+make_table <- function(dt) {
+  dt <- dt %>% group_by(Version, Fnc)  %>% summarise("Mean Time" = mean(Time))
+  dt <- dt %>% ungroup %>% mutate(Ratio = `Mean Time` / min(`Mean Time`))
+  kable(dt, digits = 2)
+}
+
+
+```
+
+### Assign with `[[` operator.
+
+In the first version of the append function the difference is significant. For the elements, the speed up is by order of magnitude. 
+
+```{r}
+make_plot(time.table %>% filter(Fnc == "fnc_assign(y)"))
+make_table(time.table %>% filter(Fnc == "fnc_assign(y)"))
+```
+
+Even when we compare this result with the pre-allocated version, it is only slightly slower. Good news!
+
+```{r}
+tbl <- time.table %>% filter(Fnc %in% c("fnc_assign(y)", "fnc_prealloc(y)"), Version == "R-3.4.0")
+
+make_plot(tbl) + ylim(c(0,10))
+make_table(tbl)
+```
+
+
+
+### Pre-allocation.
+
+No difference;)
+
+```{r}
+make_plot(time.table %>% filter(Fnc == "fnc_prealloc(y)"))
+make_table(time.table %>% filter(Fnc == "fnc_prealloc(y)"))
+```
+
+### c() function.
+
+This version does not support this new functionality, so there is no difference between versions. This might be a bit confusing because it seems to be quite natural to add new observation to the end of a vector using `c(...)` function. However this cause massive loss of performance. It's better to avoid `c(...)` function in for loop!
+
+
+### Impact of vector size.
+
+It is worth to note that in the old version (and in the current one when the `c` function is used) creating a vector of length $n$ by adding one element in the loop has $O(n^2)$ complexity. Adding just one element cause to reallocate the whole memory, so in the ith iteration we need to move $i-1$ elements, so we get $1 + 2 + 3 + ... + n - 2 + n - 1$, which is $O(n^2)$.
+
+In the new version, the reallocation can be done less often so it can be much more linear. See the following graphs for comparison:
+
+```{r}
+size.table <- read_data(files.size)
+
+size.time <- size.table %>% group_by(Version, Fnc) %>% summarise(Mean = mean(Time))
+
+size.time$Size <- as.character(size.time$Fnc) %>% stringi::stri_extract_all_regex("[0-9]+", simplify = TRUE) %>% as.numeric()
+
+size.plot <- ggplot(size.time) + geom_point(aes(x = Size, y = Mean, color = Version), size = 3) + xlab("Vector size") + ylab("Time in miliseconds") + theme_bw(16) + scale_color_manual(values = c("R-3.3.3" = "#E41A1C", "R-3.4.0" = "#377EB8"))
+size.plot
+```
+
+And the zoom for the new version:
+
+```{r}
+r34.size <- size.time %>% filter(Version == "R-3.4.0")
+r34.size.plot <- ggplot(r34.size) + geom_point(aes(x = Size, y = Mean, color = Version), size = 3) + xlab("Vector size") + ylab("Time in miliseconds") + theme_bw(16)+ scale_color_manual(values = c("R-3.3.3" = "#E41A1C", "R-3.4.0" = "#377EB8"))
+
+r34.size.plot
+```
+
+## Summary
+
+In R 3.4.0 the memory management for vectors is better organized so resizing of the vector is much faster ($O(n)$ vs. $O(n^2)$ in the old version). The only problem is that this does not apply to the `x <- c(x, i)` - this one is still slow. But the best option is to stay with preallocation, because it is still the fastest way of dealing with growable vectors:)
