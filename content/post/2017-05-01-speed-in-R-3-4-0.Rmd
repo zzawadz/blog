@@ -1,3 +1,5 @@
+
+
 ---
 title: "Updated vectors in R 3.4.0"
 date: '2017-05-06'
@@ -124,7 +126,7 @@ make_table <- function(dt) {
 
 ### Assign with `[[` operator.
 
-In the first version of the append function the difference is significant. For the elements, the speed up is by order of magnitude. 
+In the first version of the append function, the difference is significant. For the elements, the speed up is by order of magnitude. 
 
 ```{r}
 make_plot(time.table %>% filter(Fnc == "fnc_assign(y)"))
@@ -153,10 +155,10 @@ make_table(time.table %>% filter(Fnc == "fnc_prealloc(y)"))
 
 ### c() function.
 
-This version does not support this new functionality, so there is no difference between versions. This might be a bit confusing because it seems to be quite natural to add new observation to the end of a vector using `c(...)` function. However this cause massive loss of performance. It's better to avoid `c(...)` function in for loop!
+This version does not support this new functionality, so there is no difference between versions. This might be a bit confusing because it seems to be quite natural to add the new observation to the end of a vector using `c(...)` function. However, this causes massive loss of performance. It's better to avoid `c(...)` in the `for` the loop!
 
 
-### Impact of vector size.
+## Impact of vector size.
 
 It is worth to note that in the old version (and in the current one when the `c` function is used) creating a vector of length $n$ by adding one element in the loop has $O(n^2)$ complexity. Adding just one element cause to reallocate the whole memory, so in the ith iteration we need to move $i-1$ elements, so we get $1 + 2 + 3 + ... + n - 2 + n - 1$, which is $O(n^2)$.
 
@@ -184,4 +186,5 @@ r34.size.plot
 
 ## Summary
 
-In R 3.4.0 the memory management for vectors is better organized so resizing of the vector is much faster ($O(n)$ vs. $O(n^2)$ in the old version). The only problem is that this does not apply to the `x <- c(x, i)` - this one is still slow. But the best option is to stay with preallocation, because it is still the fastest way of dealing with growable vectors:)
+In R 3.4.0 the memory management for vectors is better organized so resizing of the vector is much faster ($O(n)$ vs. $O(n^2)$ in the old version). The only problem is that this does not apply to the `x <- c(x, i)` - this one is still slow. But the best option is to stay with preallocation because it is still the fastest way of dealing with growable vectors:)
+
