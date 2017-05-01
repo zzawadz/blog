@@ -12,7 +12,7 @@ tags:
   - future
 ---
 
-Sometimes when you are creating shiny's application, and you need to allow the user to perform a long computation (e.g. some model fitting). However, time-demanding calculations are quite problematic, because the whole session needs to wait until it finishes, blocking any other work in different part of the system. 
+Sometimes you are creating shiny application, and you need to allow the user to perform a long computation (e.g. some model fitting). However, time-demanding calculations are quite problematic, because the whole session needs to wait until it finishes, blocking any other work in different part of the system. 
 
 Fortunately, there is a way to perform an asynchronous job in shiny, so the long-running task can be resolved in the background without blocking the application. To take advantage of that feature we need to learn something about the future package.
 
@@ -44,7 +44,7 @@ print(paste("future's value is equal:", value(ft)))
 
 Ok. We know how to run an asynchronous job in regular R session. However, we cannot use that strategy inside shiny, because we still need to wait inside reactive to return the value.  Fortunately shiny has an `invalidateLater` functionality, which allows us to schedule current reactive context to re-execution. 
 
-So we can use a very simple pattern - reactiveValues is used to store currently executed future's call.  If it is value is equal to null, that mean there's no running job so that we can schedule a new one. If the value is still unresolved, we use *invalidateLater* to schedule re-execution after few moments. When the job is ready, we can return the value. See the following listing for the simple example:
+So we can use a very simple pattern - reactiveValues is used to store currently executed future's call.  If its value is equal to null, that means there's no running job so that we can schedule a new one. If the value is still unresolved, we use *invalidateLater* to schedule re-execution after few moments. When the job is ready, we can return the value. See the following listing for the simple example:
 
 ```{r, eval=FALSE}
 future <- reactiveValues(future = NULL)
@@ -162,4 +162,4 @@ server <- function(input, output) {
 shinyApp(ui = ui, server = server)
 ```
 
-I hope you enjoyed that post, and found it usefull. Welcome in my blog:)
+I hope you enjoyed that post, and found it usefull. Welcome to my blog:)
