@@ -84,7 +84,11 @@ output$FuturePlot <- renderPlot({
 There's the working app:
 
 ```{r, eval=FALSE}
-# Define UI for application that draws a histogram
+library(future)
+library(shiny)
+plan(multiprocess)
+
+
 ui <- fluidPage(
    
    # Application title
