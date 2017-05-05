@@ -1,5 +1,3 @@
-
-
 ---
 title: "Updated vectors in R 3.4.0"
 date: '2017-05-06'
@@ -29,16 +27,15 @@ The last update version of R comes with a small update of vector behavior when t
      in packages at this time.
 ```
 
-In this post, I'll try to show how does this work in practice.
+In this post, I'll try to show how does this work in practice, and what does it mean to the user.
 
 ## Functions used in benchmark
 
-To test the new functionality I created three simple functions which add a new element at the end of the vector in three different ways.
+To test the new functionality I created three simple functions which add a new element to the end of the vector in three different ways:
 
-- Assign new element using `[[]]` operator:
+- Assign new item using `[[]]` operator:
 
 ```{r, echo=TRUE}
-
 fnc_assign <- function(y) {
   x <- NULL
   for (i in y) {
@@ -60,7 +57,7 @@ fnc_combines <- function(y) {
 }
 ```
 
-- Pre-allocate memory:
+- Pre-allocate memory (recommended way):
 
 ```{r, echo=TRUE}
 fnc_prealloc <- function(y) {
@@ -72,12 +69,10 @@ fnc_prealloc <- function(y) {
 }
 ```
 
-## Testing framework
 
-I created simple bash scripts to download and compile two versions of the of R. The testing code was executed in both versions. All the code used to create this analysis is available in GitHub repository - https://github.com/zzawadz/blog-entry-vector-speed.
+Then I created simple bash scripts to download and compile two versions of R. The testing functions were executed in both versions using `microbenchmark` (the code used to create this analysis is available in GitHub repository - https://github.com/zzawadz/blog-entry-vector-speed).
 
 ## Results
-
 
 ```{r}
 library(ggplot2)
@@ -109,15 +104,17 @@ read_data <- function(files) {
 
 ```{r}
 time.table <- read_data(files.time)
-
+# time.table <-
+#   time.table %>% group_by(Fnc, Version) %>% filter(abs(Time - median(Time)) < 1.5 * IQR(Time))
+  
 make_plot <- function(dt){
   p <- ggplot(dt) + geom_boxplot(aes(fill = Version, y = Time, x = Fnc))
   p + scale_fill_manual(values = c("R-3.3.3" = "#E41A1C", "R-3.4.0" = "#377EB8"))
 }
 
 make_table <- function(dt) {
-  dt <- dt %>% group_by(Version, Fnc)  %>% summarise("Mean Time" = mean(Time))
-  dt <- dt %>% ungroup %>% mutate(Ratio = `Mean Time` / min(`Mean Time`))
+  dt <- dt %>% group_by(Version, Fnc)  %>% summarise("Median Time" = median(Time))
+  dt <- dt %>% ungroup %>% mutate(Ratio = `Median Time` / min(`Median Time`))
   kable(dt, digits = 2)
 }
 
@@ -126,7 +123,7 @@ make_table <- function(dt) {
 
 ### Assign with `[[` operator.
 
-In the first version of the append function, the difference is significant. For the elements, the speed up is by order of magnitude. 
+In the first version of the append function, the difference is significant. For $10^4$ the elements, the speed up is by order of magnitude. 
 
 ```{r}
 make_plot(time.table %>% filter(Fnc == "fnc_assign(y)"))
@@ -146,21 +143,26 @@ make_table(tbl)
 
 ### Pre-allocation.
 
-No difference;)
+No real difference;)
 
 ```{r}
-make_plot(time.table %>% filter(Fnc == "fnc_prealloc(y)"))
+make_plot(time.table %>% filter(Fnc == "fnc_prealloc(y)")) + ylim(c(5,12))
 make_table(time.table %>% filter(Fnc == "fnc_prealloc(y)"))
 ```
 
 ### c() function.
 
-This version does not support this new functionality, so there is no difference between versions. This might be a bit confusing because it seems to be quite natural to add the new observation to the end of a vector using `c(...)` function. However, this causes massive loss of performance. It's better to avoid `c(...)` in the `for` the loop!
+This version does not support the new functionality. It might be a bit confusing because it seems to be quite natural to add the new observation to the end of a vector using `c(...)` function. However, this causes massive loss of performance, and it is a big mistake! ***It's better to avoid*** `c(...)` ***in the*** `for` *** loop!***
+
+```{r}
+make_plot(time.table %>% filter(Fnc == "fnc_combines(y)"))
+make_table(time.table %>% filter(Fnc == "fnc_combines(y)"))
+```
 
 
 ## Impact of vector size.
 
-It is worth to note that in the old version (and in the current one when the `c` function is used) creating a vector of length $n$ by adding one element in the loop has $O(n^2)$ complexity. Adding just one element cause to reallocate the whole memory, so in the ith iteration we need to move $i-1$ elements, so we get $1 + 2 + 3 + ... + n - 2 + n - 1$, which is $O(n^2)$.
+It is worth to note that in the old version (and in the current one when the `c` function is used) creating a vector of length $n$ by adding just one element in the loop has $O(n^2)$ complexity. Inserting just one element causes reallocating the whole vector in the memory, so in the ith iteration, we need to move $i-1$ elements. So in the end we get $1 + 2 + 3 + ... + n - 2 + n - 1$ operations, which is $O(n^2)$.
 
 In the new version, the reallocation can be done less often so it can be much more linear. See the following graphs for comparison:
 
@@ -186,5 +188,4 @@ r34.size.plot
 
 ## Summary
 
-In R 3.4.0 the memory management for vectors is better organized so resizing of the vector is much faster ($O(n)$ vs. $O(n^2)$ in the old version). The only problem is that this does not apply to the `x <- c(x, i)` - this one is still slow. But the best option is to stay with preallocation because it is still the fastest way of dealing with growable vectors:)
-
+In R 3.4.0 the memory management for vectors is much better organized so resizing of the vector is much faster ($O(n)$ vs. $O(n^2)$). The only problem is that this does not apply to the `x <- c(x, i)` - this one is always slow. But the best option is to stay with preallocation because it is still the fastest way of dealing with growable vectors:)
