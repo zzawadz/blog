@@ -5,9 +5,7 @@ date: '2017-04-24'
 slug: ''
 categories: 
   - R
-  - shiny
 tags:
-  - R
   - shiny
   - future
 ---

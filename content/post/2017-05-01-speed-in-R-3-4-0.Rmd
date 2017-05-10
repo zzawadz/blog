@@ -6,7 +6,6 @@ output: html_document
 categories: 
   - R
 tags:
-  - R
   - performance
 ---
 
@@ -14,7 +13,7 @@ tags:
 knitr::opts_chunk$set(echo = TRUE, dev = "CairoSVG", echo = FALSE, message = FALSE, warning = FALSE, fig.width = 6, fig.height = 4)
 ```
 
-The last update version of R comes with a small update of vector behavior when the new value is inserted just after the last element. See the entry from the announcement (https://stat.ethz.ch/pipermail/r-announce/2017/000612.html):
+The last version of R comes with a small update of vector behavior in regard to inserting new value just after the last element. See the entry from the announcement (https://stat.ethz.ch/pipermail/r-announce/2017/000612.html):
 
 ```
 * Assigning to an element of a vector beyond the current length now
@@ -31,7 +30,7 @@ In this post, I'll try to show how does this work in practice, and what does it 
 
 ## Functions used in benchmark
 
-To test the new functionality I created three simple functions which add a new element to the end of the vector in three different ways:
+To test the new functionality I created three simple functions which add a new element at the end of the vector in three different ways:
 
 - Assign new item using `[[]]` operator:
 
@@ -70,7 +69,7 @@ fnc_prealloc <- function(y) {
 ```
 
 
-Then I created simple bash scripts to download and compile two versions of R. The testing functions were executed in both versions using `microbenchmark` (the code used to create this analysis is available in GitHub repository - https://github.com/zzawadz/blog-entry-vector-speed).
+Then I created simple bash scripts to download and compile two versions of R. The testing functions were executed in both releases using `microbenchmark` (the code used to create this analysis is available in GitHub repository - https://github.com/zzawadz/blog-entry-vector-speed).
 
 ## Results
 
@@ -121,9 +120,9 @@ make_table <- function(dt) {
 
 ```
 
-### Assign with `[[` operator.
+### Assign with `[[]]` operator.
 
-In the first version of the append function, the difference is significant. For $10^4$ the elements, the speed up is by order of magnitude. 
+In the first version of the append function, the difference is significant. For $10^4$ elements, the speed up is by order of magnitude. 
 
 ```{r}
 make_plot(time.table %>% filter(Fnc == "fnc_assign(y)"))
@@ -152,7 +151,7 @@ make_table(time.table %>% filter(Fnc == "fnc_prealloc(y)"))
 
 ### c() function.
 
-This version does not support the new functionality. It might be a bit confusing because it seems to be quite natural to add the new observation to the end of a vector using `c(...)` function. However, this causes massive loss of performance, and it is a big mistake! ***It's better to avoid*** `c(...)` ***in the*** `for` *** loop!***
+This version does not support the new functionality. It might be a bit confusing because it seems to be quite natural to add the new observation to the end of a vector using `c(...)` function. However, this causes massive loss of performance, and it is a big mistake! **It's better to avoid** `c(...)` **in the** `for` **loop!**
 
 ```{r}
 make_plot(time.table %>% filter(Fnc == "fnc_combines(y)"))
