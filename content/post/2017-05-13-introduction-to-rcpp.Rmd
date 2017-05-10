@@ -207,7 +207,7 @@ Below there is a simple example of using `std::map` to create a bit faster `tabl
 // [[Rcpp::plugins(cpp11)]]
 // [[Rcpp::export]]
 Rcpp::IntegerVector fast_table(Rcpp::NumericVector x) {
-  Create map with double value as a key and size_t to  store number of occurence.
+  // Create map with double value as a key and size_t to  store number of occurence.
   std::map<double, size_t> tbl; // 
   
   // How many unique values does the vector have
@@ -222,7 +222,7 @@ Rcpp::IntegerVector fast_table(Rcpp::NumericVector x) {
     // returns value equals to end() iterator.
     // In such situation that new key must be added.
     if(mp == tbl.end()) {
-tbl[it] = 1;
+      tbl[it] = 1;
       unique++;
       
     } else {
@@ -248,6 +248,17 @@ tbl[it] = 1;
   res.names() = names;
   return res;
 }
+```
+
+And here are the results - a bit faster:
+```{r}
+set.seed(123)
+
+x <- sample(1:1000, size = 1e5, replace = TRUE)
+
+microbenchmark(table(x), fast_table(x))
+all(table(x) == fast_table(x))
+```
 
 ## Summary.
 
