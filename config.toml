@@ -1,10 +1,10 @@
-baseurl = "/"
+baseurl = "http://www.blog.zstat.pl/"
 relativeurls = true
 languageCode = "en-us"
 title = "zstat.pl - blog"
 theme = "hugo-lithium-theme"
 googleAnalytics = "UA-80778306-3"
-disqusShortname = ""
+disqusShortname = "blog-zstat"
 ignoreFiles = ["\\.Rmd$", "_files$", "_cache$"]
 
 [permalinks]
