@@ -1,5 +1,5 @@
 ---
-title: "R Notebook"
+title: "Introduction to Rcpp"
 date: '2017-05-13'
 author: Zygmunt Zawadzki
 output: html_document
