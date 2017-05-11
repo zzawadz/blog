@@ -13,6 +13,12 @@ ignoreFiles = ["\\.Rmd$", "_files$", "_cache$"]
 [[menu.main]]
     name = "About"
     url = "/about/"
+[[menu.main]]
+    name = "Twitter"
+    url = "https://twitter.com/zzawadz"
+[[menu.main]]
+    name = "LinkedIn"
+    url = "https://www.linkedin.com/in/zygmunt-zawadzki-81525b92/"
 
 [params]
     description = "zstat.pl blog"
