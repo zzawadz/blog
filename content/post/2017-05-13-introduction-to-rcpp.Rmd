@@ -9,7 +9,7 @@ tags:
   - performance
 ---
 
-In the last post, I was describing the new memory management for vectors, which significantly improve the performance of growable vector. It is a step in the right direction in making R interpreter much faster. However, there is a time when we need more speed, and the R cannot be good enough at it.
+In the last post I described the new memory management for vectors, which significantly improves the performance of growable vector. It is a step in the right direction in making R interpreter much faster. However, there are times when we need more speed, and R isn't fast enough.
 
 On the other hand, R is a great environment for joining many different tools. It might be hard or even impossible just to resign from R, especially because in most situations there are only a few critical parts of a system which must be optimized. Other stuff, like visualizations, can still be done in R and switching between different environments is not very comfortable:( And this is the point where the Rcpp comes to rescue. Rcpp is an R package which allows easily create and use C++ code within R.
 
@@ -69,7 +69,7 @@ C++ is a compiled language, so before the execution, the compiler has a lot of t
 
 It is true. When you are writing C++ code, you need to take into account much more things like the declaring and specifying the type of variables or some memory management issues. However, in the modern C++, the differences are not as significant as it might seem.
 
-We still need to declare the type of a variable, but in some cases the can leave that to the compiler because it can deduce the right form from the context. See the example.
+Most of the time we still need to declare the type of a variable, but in some cases we can leave that to the compiler because it can deduce the right form from the context. See the example.
 
 ```{Rcpp, example}
 #include <Rcpp.h>
@@ -79,7 +79,7 @@ We still need to declare the type of a variable, but in some cases the can leave
 // [[Rcpp::export]]
 int auto_type(const std::vector<double>& y) {
 
-  // We assign y to x, so it obvious that x must have the same class as a y.
+  // We assign y to x, so it is obvious that x must have the same class as y.
   auto x = y; 
 
   // Size method returns exact type, so the variable for storing the result can inherit that class.
@@ -125,7 +125,7 @@ microbenchmark(fnc_cpp(y), fnc_cpp2(y))
 
 ## R object in C++.
 
-Rcpp is an incredible tool. It not only generate magically all the code needed to include C++ functions inside R but also allows to use R objects directly inside C++. See the example:
+Rcpp is an incredible tool. Not only it magically generates all the code needed to include C++ functions inside R but also allows to use R objects directly inside C++. See the example:
 
 ```{Rcpp, vector3}
 #include <Rcpp.h>
@@ -146,7 +146,7 @@ Rcpp::NumericVector fnc_cpp_rstruct(Rcpp::NumericVector y) {
 
 Now the `x` and `y` are the standard R objects and behave like that, with all pros and cons. 
 
-There is a problem with that code above. Rcpp (version. 0.12.10) still uses the old memory allocation scheme, so each time the new element is inserted the whole vectors is reallocated (see my last post about this issue http://www.blog.zstat.pl/2017/05/06/updated-vectors-in-r-3.4.0/). It can be easily shown using simple benchmarks, but it will possibly be changed in the next versions.
+There is a problem with that code above. Rcpp (version. 0.12.10) still uses the old memory allocation scheme, so each time the new element is inserted the whole vector is reallocated (see my last post about this issue http://www.blog.zstat.pl/2017/05/06/updated-vectors-in-r-3.4.0/). It can be easily shown using simple benchmarks, but it will possibly be changed in the next versions.
 
 ```{r}
 # It is a function from the last post which allocates memory in the wrong way.
@@ -163,7 +163,7 @@ microbenchmark(fnc_cpp(y), fnc_cpp_rstruct(y), fnc_combines(y))
 
 ## Other R objects.
 
-Below I show an example how to create a named list on the C++ side. It is very useful because you can easily export near everything as a list:) Particularly useful for debugging.
+Below I show an example of how to create a named list on the C++ side. It is very useful because you can easily export export nearly everything as a list:) Particularly useful for debugging.
 
 ```{Rcpp, list}
 #include <Rcpp.h>
@@ -191,7 +191,7 @@ create_test_list()
 
 ## A word about memory management.
 
-You might have heard somewhere that C++ is a very compilated when it comes to memory management. There are some things like pointers, which can cause memory leaks and other scary stuff. But as long as you use standard data structures like `std::vector` or R's ones like `Rcpp::NumericVector`, there's no need to worry about anything. C++ does an excellent job of handling this material. So I would recommend staying away from pointers and other more compilated stuff, at least at the beginning. 
+You might have heard somewhere that C++ is very compilated when it comes to memory management. There are some things like pointers, which can cause memory leaks and other scary stuff. But as long as you use standard data structures like `std::vector` or R's ones like `Rcpp::NumericVector`, there's no need to worry about anything. C++ does an excellent job of handling this material. So I would recommend staying away from pointers and other more compilated stuff, at least at the beginning. 
 
 I'm planning to write a post covering some basic memory management issues in C++, so stay focus;)
 
@@ -214,12 +214,12 @@ Rcpp::IntegerVector fast_table(Rcpp::NumericVector x) {
   size_t unique = 0;
   
   for(const auto& it : x) {
-    // The result of tbl.find is an iterator, but this not important -
+    // The result of tbl.find is an iterator, but this is not important -
     // the type is deducted using auto.
     auto mp = tbl.find(it);
 
     // When there is no such key in the map, a function
-    // returns value equals to end() iterator.
+    // returns value equal to end() iterator.
     // In such situation that new key must be added.
     if(mp == tbl.end()) {
       tbl[it] = 1;
@@ -268,4 +268,4 @@ In the modern version of C++, you can use `auto` type to declare variable type. 
 
 You can use all C++ data structures in your code. There is a short list of the standard possibilities -http://www.cplusplus.com/reference/stl/. You can learn how to use them by looking at the examples, e.g. http://www.cplusplus.com/reference/map/map/begin/.
 
-I'm working on new stuff covering a bit more advanced (but VERY important) aspects of Rcpp, so don't forget to visit my blog from time to time. You can also watch me on twitter https://twitter.com/zzawadz or leave a comment below.
+I'm working on new stuff covering a bit more advanced (but VERY important) aspects of Rcpp, so don't forget to visit my blog from time to time. You can also follow me on twitter https://twitter.com/zzawadz or leave a comment below.
