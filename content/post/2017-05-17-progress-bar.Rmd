@@ -37,7 +37,7 @@ But there is also a problem with not very long, but also not very short executio
 
 # Summary
 
-This is not a very technical post, but I think some thought might be useful. I would like to finish with my favorite quote about performance:
+This is not a very technical post, but I think some thought might be useful. I would like to finish it with my favorite quote about performance:
 
 *Paul Gilbert:* [code comparing speed of apply(z,2,sum) vs. rep(1,10000)%*%z)] which seemed
 completely contrary to all my childhood teachings.
@@ -49,6 +49,6 @@ of various matrix multiplication techniques.
 
 *Brian Ripley:* ‘so slow’ sic: **what are you going to do in the 7ms you saved?**
 
-*—Paul Gilbert, Douglas Bates, and Brian D. Ripley (discussing ‘the incredible lightness of crossprod’) R-devel (January 2005) (taken from fortunes package -* https://cran.r-project.org/web/packages/fortunes/vignettes/fortunes.pdf*)*
+*—Paul Gilbert, Douglas Bates, and Brian D. Ripley (discussing ‘the incredible lightness of crossprod’) R-devel (January 2005) (taken from fortunes package -* https://cran.r-project.org/web/packages/fortunes/vignettes/fortunes.pdf *)*
 
 Remember! You can follow me on twitter https://twitter.com/zzawadz or leave a comment below;)

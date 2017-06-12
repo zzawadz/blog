@@ -9,6 +9,10 @@ tags:
   - performance
 ---
 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, dev = "CairoSVG", message = FALSE, warning = FALSE, fig.width = 6, fig.height = 4, cache = TRUE)
+```
+
 In the last post I described the new memory management for vectors, which significantly improves the performance of growable vector. It is a step in the right direction in making R interpreter much faster. However, there are times when we need more speed, and R isn't fast enough.
 
 On the other hand, R is a great environment for joining many different tools. It might be hard or even impossible just to resign from R, especially because in most situations there are only a few critical parts of a system which must be optimized. Other stuff, like visualizations, can still be done in R and switching between different environments is not very comfortable:( And this is the point where the Rcpp comes to rescue. Rcpp is an R package which allows easily create and use C++ code within R.
