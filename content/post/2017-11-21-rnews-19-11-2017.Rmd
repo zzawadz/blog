@@ -3,8 +3,10 @@ title: RNews - 19-11-2017
 author: Zygmunt Zawadzki
 date: '2017-11-21'
 slug: rnews-19-11-2017
-categories: [rtips]
-tags: [rtips]
+categories:
+  - R
+tags:
+  - rtips
 ---
 
 Here is a small pack of some engaging news from R's world gathered from Twitter in the last week.
