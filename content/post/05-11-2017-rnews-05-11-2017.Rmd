@@ -1,0 +1,48 @@
+---
+title: RNews - 2017-11-05
+author: ~
+date: '2017-11-05'
+slug: rnews-05-11-2017Rmd
+categories:
+  - R
+tags:
+  - rtips
+---
+
+Here is a small pack of some engaging news from R's world gathered from Twitter in the last week.
+
+#### Articles
+
+- https://www.joelonsoftware.com/2003/10/08/the-absolute-minimum-every-software-developer-absolutely-positively-must-know-about-unicode-and-character-sets-no-excuses/ - minimal amount of knowledge about Unicode. The article is targeted to developers, but it might also be useful for Data Scientists. I highly recommend other posts on that blog - the host is one of the creators of VBA in Excel, Trello, and StackOverflow.
+
+- https://imgur.com/gallery/GD5gi - visualization of the sorting algorithms.
+
+#### R Tips
+
+- https://stackoverflow.com/questions/45101045/why-use-purrrmap-instead-of-lapply/47123420#47123420 - why is it better to use functions from the `purrr` package instead of `apply` family? (tl;dr - `purrr` interface is much more unified and predictable).
+
+- http://psych-networks.com/r-tutorial-identify-communities-items-networks/ - how to use R's graphs packages to identify communities in your data.
+
+- https://www.jessesadler.com/post/network-analysis-with-r/ - tutorial on network analysis in R. It's more basic article than previous one, but it might be useful for everyone interested in this topic.
+
+- http://lenkiefer.com/2017/10/17/time-to-animate-with-tibbletime/ - another example of the `tibbletime` in action.
+
+### Packages
+
+#### Lists
+
+- https://rviews.rstudio.com/2017/10/25/september-17-top-40-packages
+
+- https://rviews.rstudio.com/2017/11/01/r-data-packages/
+
+#### Individual packages
+
+- https://github.com/r-lib/cli - create command line interfaces in R.
+
+- https://github.com/jonocarroll/ggshape/ - various facets for ggplot2.
+
+- https://yonicd.netlify.com/post/slackr/ - R and Slack integration. It can be used to create R's progress bar in Slack.
+
+- http://dirk.eddelbuettel.com/code/linl.html - template for letters in R markdown.
+
+- https://github.com/r-lib/styler - automatic R code formatter.
