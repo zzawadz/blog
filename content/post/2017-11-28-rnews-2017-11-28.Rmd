@@ -1,0 +1,51 @@
+---
+title: RNews - 2017-11-27
+author: ~
+date: '2017-11-27'
+slug: rnews-2017-11-27
+categories:
+  - R
+tags:
+  - rtips
+---
+
+Next portion of exciting information from R's world (in fact, not only R's but it's the main thing here).
+
+### Aggregators:
+
+- https://trello.com/b/rbpEfMld/data-science - a huge collection of the resources related to the Data Science (R, Python, Big Data, and so on). 
+
+### Articles:
+
+- https://drsimonj.svbtle.com/visualising-residuals - long post about visualization of the residuals. The "Multiple Regression" section is worth to check - the analysis is quite impressive.
+
+- http://www.tandfonline.com/doi/full/10.1080/01621459.2017.1311264 - the old saga about why p-values are evil continues.
+
+- http://www.fharrell.com/2017/11/too-many-variables-and-too-few.html - data reduction techniques in the case of skewed data.
+
+- https://spectrumnews.org/opinion/viewpoint/quest-autism-biomarkers-faces-steep-statistical-challenges/ - the primary focus of the article is autism, but it covers some essential statistical topics like effect size or ROC. There's good interactive visualization of the ROC curve at the end of the article.
+
+- http://hunch.net/?p=22 - a summary of the possible causes of the overfitting and possible remedies. Must read.
+
+- https://hackerbits.com/data/top-10-data-mining-algorithms-in-plain-r/ - title speaks for itself. It covers C5.0, k-means, SVM, and others likes PageRank.
+
+- https://longhowlam.wordpress.com/2017/11/23/association-rules-using-fpgrowth-in-spark-mllib-through-sparklyr/ - creating association rules in `sparklyr`. It also shows how to use `invoke` function to call arbitrary methods, which are not covered in the `sparklyr` interface.
+
+### R:
+
+- http://www.mjdenny.com/R_Package_Pictorial.html/ - introduction to building R's packages with some pictures. It might be useful for beginners because it shows what should be clicked in which order.
+
+- http://rtweet.info/reference/stopwordslangs.html - there's a list of stopwords for few languages. Unfortunately, polish is not one of them:(
+
+- https://blog.datascienceheroes.com/x-ray-vision-on-your-datasets/ - package for finding suspicious things in your data. It seems that it might simplify the first steps of the data exploration. It's definitely on my "CHECK IN NEAR FUTURE" list.
+
+- https://github.com/richfitz/stevedore - docker client for R.
+
+- http://rpubs.com/aelhabr/tidyverse-basics - introduction to `tidyverse`. If you don't know what the "tidy data" term means, it's a must-read.
+
+### Other:
+
+- https://explainshell.com/ - web page which explains Linux's shell commands. Very useful for learning `bash`, or just for checking random scripts taken from StackOverflow.
+
+- https://github.com/antvis/g2 - javascript library for visualization. It's based on the `ggplot2` principles.
+
