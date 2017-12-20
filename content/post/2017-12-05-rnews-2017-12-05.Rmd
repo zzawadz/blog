@@ -1,0 +1,36 @@
+---
+title: RNews - 2017-12-05
+author: ~
+date: '2017-12-05'
+slug: rnews-2017-12-05
+categories: []
+tags: []
+---
+
+Another pack of news from R's world.
+
+### Aggregators:
+
+- https://rweekly.org/ - this is a great aggregator - even better than mine;)
+
+### Articles:
+
+- http://smarterpoland.pl/index.php/2017/12/explain-explain-explain/ - a quick summary of the packages which can be used to explain the results of various models (lm, glm, xgboost, etc.). Unfortunately, there's nothing about LIME, which is more general purpose package for explaining models (https://cran.r-project.org/web/packages/lime/index.html).
+
+- https://christophm.github.io/interpretable-ml-book/ - an online book about explaining models predictions. There's much more information than in the previous article (you know, this is a book, short, but still book;)).
+
+- https://edwinth.github.io/blog/dplyr-recipes/ - summary of the most common patterns in dplyr's evaluation (I think there should be some cheatsheet for that, because this is still a bit complicated to grsasp.)
+
+- https://medium.com/greyatom/performance-metrics-for-classification-problems-in-machine-learning-part-i-b085d432082b - short description of the basic ML performance statistics.
+
+- http://colinfay.me/purrr-text-wrangling/ - text wrangling with purrr. It might be worth to see how you can analyze your data in the more functional way.
+
+### Packages:
+
+- https://github.com/MilesMcBain/datapasta - coping and pasting tables into R. Go and check the GIF, it looks awesome.
+
+- http://www.questionflow.org/2017/12/05/usage-of-ruler-package/ - package for data frame validation.
+
+### Other:
+
+- https://twitter.com/i/moments/937075112343371777 - "Don't expect your data scientist to be a full-stack developer."

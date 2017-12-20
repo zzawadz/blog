@@ -1,0 +1,42 @@
+---
+title: RNews - 2017-12-19
+author: ~
+date: '2017-12-19'
+slug: rnews-2017-12-19
+categories: []
+tags: []
+---
+
+This is the last (planned) RNews in 2017.
+
+In this week there's something about reproducible research (anyone should do this!), and deep learning - one tutorial, and one general article about image classification in radiology.
+
+### Books
+
+- http://www.britishecologicalsociety.org/wp-content/uploads/2017/12/guide-to-reproducible-code.pdf - this book is a guide to writing reproducible code using R. There's an `in Ecology and Evolution` in the title, but the scope of this writing should not be limited to only that areas:)
+
+### Articles:
+
+- https://tensorflow.rstudio.com/blog/time-series-forecasting-with-recurrent-neural-networks.html - single chapter from `Deep Learning with R` book (link to the book - https://www.manning.com/books/deep-learning-with-r).
+
+- http://blog.sellorm.com/2017/12/18/learn-to-write-command-line-utilities-in-r/ - you can use R scripts instead of writing in bash. (there is second part of this article - http://blog.sellorm.com/2017/12/19/command-line-utilities-in-r-pt-2/).
+
+- http://rex-analytics.com/things-live-r-r-excel-users/ - some advice about mapping Excel's mental model into R.
+
+- https://lukeoakdenrayner.wordpress.com/2017/12/18/the-chestxray14-dataset-problems/ - long article about using machine learning in radiology. Fascinating read.
+
+- https://www.statschat.org.nz/2017/12/15/jenny-bryan-you-need-a-huge-tolerance-for-ambiguity/ - an interview with Jenny Bryan from Rstudio.
+
+- https://r-posts.com/pipes-in-r-tutorial-for-beginners/ - pipes in R.
+
+- https://github.com/ColinFay/conf/blob/master/2017-11-budapest/fay_colin_text_data_ggplot2.pdf - visualization of text data.
+
+### Packages:
+
+- https://github.com/jennybc/here_here - simple package for working with file paths.
+
+- https://ropensci.github.io/fulltext-book/ - Get full-text articles from (almost) anywhere (the main link refers to the manual, here's GitHub repo: https://github.com/ropensci/fulltext).
+
+- https://cran.r-project.org/web/packages/partykit/index.html - package for working with tree-structured regression and classification models. It has support for rpart, Rweka, and PMML.
+
+- https://cran.r-project.org/web/packages/ggalluvial/vignettes/ggalluvial.html - create Alluvial diagrams in R - click the link to see what's that.
