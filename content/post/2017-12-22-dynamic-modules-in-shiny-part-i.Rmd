@@ -1,0 +1,72 @@
+---
+title: Dynamic modules in shiny - Part I
+author: ~
+date: '2017-12-22'
+slug: dynamic-modules-in-shiny-part-i
+categories: []
+tags: []
+---
+
+The best way to organize shiny app is to use modules. They are also an excellent choice when you need to replicate some functionality few times. For example, when you want to compare some plots with different parameters, the modules are your way to go. In basic usage, modules require a direct call of `callModule` in a server and a place in UI. However, sometimes you don't know how many instances of a given module are needed. One way to achieve this is to allocate a few placeholders like this:
+
+```
+# server
+callModule(module = mod,  id = "mod1")
+callModule(module = mod,  id = "mod2")
+callModule(module = mod,  id = "mod3")
+...
+```
+
+And hide UI using shinyjs. Then, when the user clicks `New module` button, the shinyjs::show will uncover the related UI.
+
+However, this approach is problematic, because it leads to the unnecessary code duplication, and works only for one specific module. It would be tough to use that way to work with multiple modules.
+
+But there's much more accessible way. When you call `callModule`, inside observer function, the newly created module is not destroyed when the `observer` finishes its work. 
+
+Having that knowledge, adding new module can work like this:
+
+```
+idCounter <- reactiveVal(value = 0)
+observeEvent(input$Add, {
+    id <- idCounter()
+
+    insertUI(
+      selector = "#addPlaceholder",
+      where = "beforeBegin",
+      ui = moduleUI(paste0("id", id)))
+
+    callModule(
+      module = moduleServer,
+      id = paste0("id",id))
+    idCounter(id + 1)
+  })
+
+```
+
+To complete the story the `div(id = "addPlaceholder")` must be added to ui as an input point for `insertUI`.
+
+By adding some `if` statements, the code above can be used to select a specific module from a few alternatives. There's the skeleton:
+
+```
+observeEvent(input$Add, {
+    id <- idCounter()
+
+    selected <- if(input$type == "plot") {
+      list(ui = modulePlotUI, server = modulePlot)
+    } else if(input$type == "text") {
+      list(ui = moduleTextUI, server = moduleText)
+    }
+
+    insertUI(
+      selector = "#addPlaceholder",
+      where = "beforeBegin",
+      ui = selected$ui(paste0("id",id)))
+
+    callModule(
+      module = selected$server,
+      id = paste0("id",id))
+    idCounter(id + 1)
+  })
+```
+
+That's all for this post. In the next one, I'll show how to get information about event generated inside a dynamically created module in the main server function.
