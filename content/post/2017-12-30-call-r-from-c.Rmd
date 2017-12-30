@@ -13,7 +13,7 @@ However, sometimes the problem is different - there's an existing system written
 
 In that post, I'll describe how R can be integrated with C# program using `Microsoft.R.Host.Client.API`.
 
-### Create R session inside C#.
+## Create R session inside C#.
 
 The first problem is to create R session inside C#. Firstly, some imports must be added (note that Microsoft.R.Host.Client.API should be imported from NuGet - https://www.nuget.org/packages/Microsoft.R.Host.Client.API/) :
 
@@ -40,7 +40,7 @@ result.Wait();
 Console.WriteLine(result.Result.Output);
 ```
 
-### Pass data.frame from C# to R.
+## Pass data.frame from C# to R.
 
 The next useful thing is to create R's `data.frame` in C# and pass it to R's session. It can be achieved using the `session.CreateDataFrameAsync("data", df)`, where "data" is a name of data.frame created in R and df is a C# DataFrame object.
 
@@ -76,7 +76,7 @@ Console.WriteLine(Convert.ToDouble(resultList.Result[0]) * 100);
 Console.WriteLine(resultList.Result[1]);
 ```
 
-### Conclusion.
+## Conclusions.
 
 `Microsoft.R.Host.Client.API` is quite easy to use and might be your first shot when you need to integrate R with C# application. For more examples, you can visit https://github.com/MikhailArkhipov/RTVS-cs. You can also try https://github.com/jmp75/rdotnet, which is another project which allows using R in C#. However, I didn't test it, so I can't say anything about it.
 
