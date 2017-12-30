@@ -1,6 +1,6 @@
 ---
 title: RNews - 2017-12-19
-author: ~
+author: Zygmunt Zawadzki
 date: '2017-12-19'
 slug: rnews-2017-12-19
 categories: []
