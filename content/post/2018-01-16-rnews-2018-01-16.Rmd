@@ -1,0 +1,77 @@
+---
+title: RNews - 2018-01-16
+author: ~
+date: '2018-01-01'
+slug: news-2018-01-16Rmd
+categories:
+  - R
+tags:
+  - rtips
+  - applyr
+---
+
+
+### Some interesting Data Science stuff found between 2018-01-16 and 2018-01-16.
+
+
+----------
+
+https://www.tidyverse.org/articles/2018/01/dbplyr-1-2/ - a new version of the database backend for dplyr. It allows using stringr functions in the mutate statements, and the operations are evaluated directly on the database. #applyrds #db #rstats https://t.co/76sX7KjIxR
+
+<p style='text-align:center'><img src='/img/2018-01-16/DTaorEAX4AAVuDL.jpg' width='80%'></p>
+
+
+----------
+
+https://github.com/welovedatascience/stranger - new package for anomaly detection in R. #rstats #pkg #applyrds https://t.co/O1itP9YXML
+
+<p style='text-align:center'><img src='/img/2018-01-16/DTmRC3BWAAAhY2I.jpg' width='80%'></p>
+
+
+----------
+
+https://hughjonesd.github.io/huxtable/ - an alternative for xtable? I hope so:) Conditional formatting (e.g., make background red if the value is larger than 3) seems to be very easily achievable. #applyrds #rstats #tables #package https://t.co/igP7rKxl7k
+
+<p style='text-align:center'><img src='/img/2018-01-16/DTdMJD-VwAALbux.jpg' width='80%'></p>
+
+
+----------
+
+https://github.com/r-lib/later/ - a package that allows you to evaluate an expression after some time. It might be useful for example in the shiny app when you want to schedule some operations in an observer. It's kinda similar idea of https://www.w3schools.com/jsref/met_win_settimeout.asp. #applyrds #shiny #rstats https://t.co/Ggkeavnuyu
+
+<p style='text-align:center'><img src='/img/2018-01-16/DTc-OoBWkAIIIqy.jpg' width='80%'></p>
+
+
+----------
+
+https://www.datascience.com/resources/notebooks/random-forest-intro - entry point tutorial about fitting random forest in Python. It covers a lot of basic ideas like feature importance, cross-validation, etc. It might be nothing new for experienced ML practitioner. #applyrds #ml #python https://t.co/ZxojBaYoSf
+
+<p style='text-align:center'><img src='/img/2018-01-16/DTaG2QIWsAAJ7HE.jpg' width='80%'></p>
+
+
+----------
+
+http://www.fstpackage.org/ - fast reading and writing R's data.frames. (Github site: https://krlmlr.github.io/fstplyr/). Might be useful if you need to read/write a lot of data frames. #applyrds #rstats #dataframe https://t.co/wMugw1nSU8
+
+<p style='text-align:center'><img src='/img/2018-01-16/DTZshQQW0AAK6UJ.jpg' width='80%'></p>
+
+
+----------
+
+http://www.blog.zstat.pl/2017/12/30/call-r-from-c/ - (my blog post) - call R from C#. #rstats #dotnet #integration #applyrds https://t.co/RuMGOOAAJv
+
+<p style='text-align:center'><img src='/img/2018-01-16/DTmxxlBWsAAua9w.jpg' width='80%'></p>
+
+
+----------
+
+https://flowingdata.com/2018/01/08/visualizing-the-uncertainty-in-data/ - some useful tips about how to visualize uncertainty in the data set. For me using obscurity seems to be promising - maybe one can use the alpha channel in ggplot2 to show the uncertainty? #applyrds #visualization https://t.co/QhV3jD60EK
+
+<p style='text-align:center'><img src='/img/2018-01-16/DTm8_LxV4AAhsT_.jpg' width='80%'></p>
+
+
+----------
+
+http://moderndive.com/ - (https://ismayc.github.io/moderndiver-book/index.html - development version) - an introductory book to data science.  It covers some basic of dplyr, tidyr, and some DS fundamentals like regression or NHST (Null hypothesis significance testing). #applyrds #rstats #rbook https://t.co/j8MYayriSe
+
+<p style='text-align:center'><img src='/img/2018-01-16/DTfQboMWAAAqESL.jpg' width='80%'></p>
