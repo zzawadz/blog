@@ -1,7 +1,7 @@
 ---
 title: RNews - 2018-01-16
 author: ~
-date: '2018-01-01'
+date: '2018-01-16'
 slug: news-2018-01-16Rmd
 categories:
   - R
