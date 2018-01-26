@@ -1,0 +1,5 @@
+# Redirect domain aliases to primary domain
+https://blog.zstat.pl/* https://www.zstat.pl/:splat 301!
+http://blog.zstat.pl/* https://www.zstat.pl/:splat 301!
+https://www.blog.zstat.pl/* https://www.zstat.pl/:splat 301!
+http://www.blog.zstat.pl/* https://www.zstat.pl/:splat 301!
