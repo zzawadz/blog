@@ -1,4 +1,4 @@
-baseurl = "http://www.blog.zstat.pl/"
+baseurl = "https://www.zstat.pl/"
 relativeurls = true
 languageCode = "en-us"
 title = "zstat.pl - blog"
