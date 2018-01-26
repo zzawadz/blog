@@ -1,0 +1,42 @@
+---
+title: "The power of Progress Bar"
+date: '2017-05-17'
+author: Zygmunt Zawadzki
+output: html_document
+categories: 
+  - R
+tags:
+  - performance
+---
+
+
+
+<p>In the last post, I wrote some notes about code optimization using Rcpp and C++. However, I forgot to add one main thought related to this topic:</p>
+<p><strong><em>“The First Rule of Program Optimization: Don’t do it. The Second Rule of Program Optimization (for experts only!): Don’t do it yet.”</em></strong></p>
+<p>I agree with that statement, and I made this mistake more than dozen times. I spent hours on optimizing the code, trying to get the results faster, and I most cases I succeed. I was able to get the result in 10 minutes instead of 30 by sacrificing 8 hours on optimization. Such a great deal!</p>
+<p>And then I read somewhere that usually, the biggest problem is not the long execution time, but a lack of knowledge about time to finish. It was a moment of revelation. If I know that the algorithm needs about ten minutes to complete, I can go to the kitchen and make a tea. If it is one hour or more I can go for a walk or try to work on something else, as simple as that. Moreover, in most cases, it is much easier to estimate time to complete (even very pessimistic one), than squeeze the last cycle from the CPU.</p>
+<div id="tools-in-r" class="section level2">
+<h2>Tools in R:</h2>
+<p>Fortunately, in R there are few useful tools for estimating time to finish. One of my favorite (because I’m one of the contributors;)) is the <code>pbapply</code> (<a href="https://cran.r-project.org/web/packages/pbapply/index.html" class="uri">https://cran.r-project.org/web/packages/pbapply/index.html</a>) package. It adds functions that provide the same functionality as <code>*apply</code> family, but with a progress bar. <code>apply -&gt; pbapply</code>, <code>lapply -&gt; pblapply</code> and so on.</p>
+<p>The second useful package is <code>progress</code>. It allows quickly creating a custom progress bar for use everywhere (e.g. in <code>for</code> loop).</p>
+<p>I don’t think that there is a need for adding there any examples of those two packages. <code>pbapply</code> is dead simple. Just replace <code>*apply</code> with <code>pb*apply</code>. Job’s done. Whereas <code>progress</code> has a ver nice description on GitHub page - see <a href="https://github.com/gaborcsardi/progress" class="uri">https://github.com/gaborcsardi/progress</a>.</p>
+</div>
+<div id="numerical-optimization." class="section level1">
+<h1>Numerical optimization.</h1>
+<p>Someone may say, that progress bar is an excellent tool, but there are cases when it is inappropriate, because there is some numerical optimization routine, and we don’t know when it will converge. It may happen after ten or thousand steps. I agree, but usually, there is a limit of maximum number iterations so that we can get the rough estimate of the worst case scenario.</p>
+</div>
+<div id="when-the-progress-bar-is-not-good-enough." class="section level1">
+<h1>When the progress bar is not good enough.</h1>
+<p>Unfortunately, the progress bar does not solve every problem. The most obvious case is when we just can’t wait because estimated time is simply too long. In such situation, we need to use other techniques (parallel processing or different algorithms).</p>
+<p>But there is also a problem with not very long, but also not very short execution time, e.g. when we need to wait about 10-12 second, to get the results. And what’s much worse, we need to do this interactively. This is probably the most discouraging case, because in those few seconds we may switch our attention to another task (usually Facebook or Twitter). So in such situation, especially when the code is going to be used by the wider audience it might be better to do some optimizations:)</p>
+</div>
+<div id="summary" class="section level1">
+<h1>Summary</h1>
+<p>This is not a very technical post, but I think some thought might be useful. I would like to finish it with my favorite quote about performance:</p>
+<p><em>Paul Gilbert:</em> [code comparing speed of apply(z,2,sum) vs. rep(1,10000)%*%z)] which seemed completely contrary to all my childhood teachings.</p>
+<p><em>Douglas Bates:</em> Must have had an interesting childhood if you spent it learning about the speeds of various matrix multiplication techniques.</p>
+<p><em>Paul Gilbert:</em> [. . . ] why is apply so slow?</p>
+<p><em>Brian Ripley:</em> ‘so slow’ sic: <strong>what are you going to do in the 7ms you saved?</strong></p>
+<p><em>—Paul Gilbert, Douglas Bates, and Brian D. Ripley (discussing ‘the incredible lightness of crossprod’) R-devel (January 2005) (taken from fortunes package -</em> <a href="https://cran.r-project.org/web/packages/fortunes/vignettes/fortunes.pdf" class="uri">https://cran.r-project.org/web/packages/fortunes/vignettes/fortunes.pdf</a> <em>)</em></p>
+<p>Remember! You can follow me on twitter <a href="https://twitter.com/zzawadz" class="uri">https://twitter.com/zzawadz</a> or leave a comment below;)</p>
+</div>

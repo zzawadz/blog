@@ -1,6 +1,5 @@
 public
 dev
-content/post/*.html
 
 # History files
 .Rhistory

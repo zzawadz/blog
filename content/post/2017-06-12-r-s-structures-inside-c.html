@@ -1,0 +1,112 @@
+---
+title: R's structures inside C++
+author: Zygmunt Zawadzki
+date: '2017-06-12'
+slug: r-s-structures-inside-c
+categories:
+  - R
+tags:
+  - performance
+---
+
+
+
+<p>Connecting R with C++ is very easy because near all work needed to glue the code together is done by Rcpp. However, there are some very dangerous traps. C++, when used improperly can mess up a lot of things in the R session. In this post, I want to show you how to write secure C++ code to reduce the chances of breaking anything in R.</p>
+<div id="references." class="section level1">
+<h1>References.</h1>
+<p>When working with R, we usually do not care if the object is copied or not. The interpreter takes care of all things related to memory management. C++ is different. When we create a function in C++, we must specify not only the type of parameters but also the way how it is passed to that function. The simplest way is to pass by value - the argument is copied, so any modification of that parameter is visible only in the scope of that function. The other way is to pass by reference. In this case, there is no copy, so action on that variable modifies it everywhere, even outside that function.</p>
+<p>This difference is crucial because every object is sent from R to C++ by reference! So any modification inside C++ function affects the variable in R session.</p>
+<p>See the following example:</p>
+<pre class="cpp"><code>#include &lt;Rcpp.h&gt;
+#include &lt;vector&gt;
+
+// [[Rcpp::plugins(cpp11)]]
+// [[Rcpp::export]]
+void change(Rcpp::NumericVector x) {
+  // The C++ function does not return anything (it&#39;s void),
+  // it only modifies the first element of the vector.
+  x.at(0) = 1000.0;
+}</code></pre>
+<p>See how this function works in R:</p>
+<pre class="r"><code>x &lt;- c(1, 2, 3)
+change(x)
+x # first element is equal to 1000 as expected</code></pre>
+<pre><code>## [1] 1000    2    3</code></pre>
+<p>It may seem to be a useful functionality because the variable can by easily modified to the desired state. But please do not do this! It wrong! And I show you why:</p>
+<pre class="r"><code>x &lt;- c(1,2,3)
+y &lt;- x
+# x and y have the same values
+x</code></pre>
+<pre><code>## [1] 1 2 3</code></pre>
+<pre class="r"><code>y</code></pre>
+<pre><code>## [1] 1 2 3</code></pre>
+<pre class="r"><code>change(x)
+x</code></pre>
+<pre><code>## [1] 1000    2    3</code></pre>
+<pre class="r"><code>y</code></pre>
+<pre><code>## [1] 1000    2    3</code></pre>
+<p>Oh dear! Changing of the <code>x</code> also affected <code>y</code>. Why? Because as I said earlier, interpreter takes care of all things related to memory management. It tries it’s best to save RAM, so in this situation, it keeps those two variables in the same place in memory because at this moment they are no difference between them.</p>
+</div>
+<div id="memory-management-in-r" class="section level1">
+<h1>Memory management in R</h1>
+<p>Every object stored in memory has its address (it is true not only for R but also for any other languages). Usually, there’s no need to know that address of the object, because it is R’s job to handle all that memory management stuff. However, knowing whre the variable is located in the memory is the best way to check when R copies or moves variables from place to place. Of course, there’s a package to find the address of the variable:)</p>
+<p>See the following example:</p>
+<pre class="r"><code>library(pryr)
+
+x &lt;- c(1,2,3)
+y &lt;- x
+
+address(x)</code></pre>
+<pre><code>## [1] &quot;0x34acb20&quot;</code></pre>
+<pre class="r"><code>address(y)</code></pre>
+<pre><code>## [1] &quot;0x34acb20&quot;</code></pre>
+<pre class="r"><code>address(x) == address(y)</code></pre>
+<pre><code>## [1] TRUE</code></pre>
+<p>The x and y share the same address in the memory. When we modify x in R session, the interpreter knows that x must be moved to another place because making any change in that chunk of memory affects not only x but also y. C++ just blindly writes new values to that place, without taking care that there are more variables associated with that address. In C++ the R interpreted does not work!</p>
+</div>
+<div id="coping-r-objects-inside-rcpp." class="section level1">
+<h1>Coping R objects inside Rcpp.</h1>
+<p>Simple copying R’s objects in C++ works in the same way as on the R’s side. C++ just creates a new variable which points to the same place in the memory as the original value. So still, any modification of the new variable, modifies the old one. See the example:</p>
+<pre class="cpp"><code>#include &lt;Rcpp.h&gt;
+#include &lt;vector&gt;
+
+// [[Rcpp::plugins(cpp11)]]
+// [[Rcpp::export]]
+Rcpp::NumericVector copyAndChange(Rcpp::NumericVector x) {
+  Rcpp::NumericVector y = x;
+  y.at(0) = 1000.0;
+  return y;
+}</code></pre>
+<pre class="r"><code>x &lt;- c(1,2,3)
+y &lt;- copyAndChange(x)
+
+y</code></pre>
+<pre><code>## [1] 1000    2    3</code></pre>
+<pre class="r"><code>x</code></pre>
+<pre><code>## [1] 1000    2    3</code></pre>
+<pre class="r"><code>address(y) == address(x)</code></pre>
+<pre><code>## [1] TRUE</code></pre>
+<p>The make a real copy, which can be modified without worrying about other variables which might be stored in the same place in memory value you need to use <code>Rcpp::clone(x)</code>.</p>
+<pre class="cpp"><code>#include &lt;Rcpp.h&gt;
+#include &lt;vector&gt;
+
+// [[Rcpp::plugins(cpp11)]]
+// [[Rcpp::export]]
+Rcpp::NumericVector cloneAndChange(Rcpp::NumericVector x) {
+  Rcpp::NumericVector y = Rcpp::clone(x);
+  y.at(0) = 1000.0;
+  return y;
+}</code></pre>
+<pre class="r"><code>x &lt;- c(1,2,3)
+y &lt;- cloneAndChange(x)
+
+y</code></pre>
+<pre><code>## [1] 1000    2    3</code></pre>
+<pre class="r"><code>x</code></pre>
+<pre><code>## [1] 1 2 3</code></pre>
+<p>Everything works as expected!</p>
+</div>
+<div id="summary" class="section level1">
+<h1>Summary</h1>
+<p>R’s interpreter usually does an excellent job of handling all memory management stuff. Unfortunately, it doesn’t work in C++ code, so one need to be careful when working with R’s structures inside C++. If there’s need for a copy of a variable, <code>Rcpp::clone(x)</code> must be used instead of simple assignment!</p>
+</div>

@@ -1,0 +1,67 @@
+---
+title: Call R from C#
+author: Zygmunt Zawadzki
+date: '2017-12-30'
+slug: call-r-from-c
+categories: []
+tags: []
+---
+
+
+
+<p>R has various packages to call other languages, like Rccp, rJava or sparklyr. Those tools significantly expand R’s capabilities, because the user doesn’t need to learn a lot of different stuff. Everything is nicely integrated into R.</p>
+<p>However, sometimes the problem is different - there’s an existing system written in some language, and R can be used to expand its possibilities. So in that scenario R must be called.</p>
+<p>In that post, I’ll describe how R can be integrated with C# program using <code>Microsoft.R.Host.Client.API</code>.</p>
+<div id="create-r-session-inside-c." class="section level2">
+<h2>Create R session inside C#.</h2>
+<p>The first problem is to create R session inside C#. Firstly, some imports must be added (note that Microsoft.R.Host.Client.API should be imported from NuGet - <a href="https://www.nuget.org/packages/Microsoft.R.Host.Client.API/" class="uri">https://www.nuget.org/packages/Microsoft.R.Host.Client.API/</a>) :</p>
+<pre><code>// Imports needed for R
+using System.Threading;
+using System.IO;
+using System.Threading.Tasks;
+using Microsoft.R.Host.Client;</code></pre>
+<p>Then the following code starts the R session:</p>
+<pre><code>// Init R session
+IRHostSession session = RHostSession.Create(&quot;Test&quot;);
+Task sessionStartTask = session.StartHostAsync(new RHostSessionCallback());
+sessionStartTask.Wait();
+
+// Simple output from console
+Console.WriteLine(&quot;Arbitrary R code:&quot;);
+var result = session.ExecuteAndOutputAsync(&quot;Sys.info()&quot;);
+result.Wait();
+Console.WriteLine(result.Result.Output);</code></pre>
+</div>
+<div id="pass-data.frame-from-c-to-r." class="section level2">
+<h2>Pass data.frame from C# to R.</h2>
+<p>The next useful thing is to create R’s <code>data.frame</code> in C# and pass it to R’s session. It can be achieved using the <code>session.CreateDataFrameAsync(&quot;data&quot;, df)</code>, where “data” is a name of data.frame created in R and df is a C# DataFrame object.</p>
+<p>The following code presents how to create DataFrame:</p>
+<pre><code>List&lt;string&gt; colNames = new List&lt;string&gt;(new string[] { &quot;c1&quot;, &quot;c2&quot; });
+List&lt;string&gt; rowNames = new List&lt;string&gt;(new string[] { &quot;1&quot;, &quot;2&quot;, &quot;3&quot;, &quot;10&quot; });
+
+var xx = new object[] { new object[] { 1, 3, 43, 54 }, new object[] { &quot;a&quot;, &quot;c&quot;, &quot;a&quot;, &quot;d&quot; } };
+var list = new List&lt;IReadOnlyCollection&lt;object&gt;&gt;();
+foreach (object o in xx)
+{
+    list.Add(o as object[]);
+}
+
+DataFrame df = new DataFrame(rowNames, colNames, list.AsReadOnly());
+var dtc = session.CreateDataFrameAsync(&quot;data&quot;, df);
+dtc.Wait();</code></pre>
+<p>Then you can collect some data from R as a list using:</p>
+<pre><code>result = session.ExecuteAndOutputAsync(&quot;print(data)&quot;);
+result.Wait();
+Console.WriteLine(&quot;\nR data frame:&quot;);
+Console.WriteLine(result.Result.Output);
+
+var resultList = session.GetListAsync(&quot;list(mean(data$c1), 111)&quot;);
+Console.WriteLine(&quot;\nList elements returned from R to C#:&quot;);
+Console.WriteLine(Convert.ToDouble(resultList.Result[0]) * 100);
+Console.WriteLine(resultList.Result[1]);</code></pre>
+</div>
+<div id="conclusions." class="section level2">
+<h2>Conclusions.</h2>
+<p><code>Microsoft.R.Host.Client.API</code> is quite easy to use and might be your first shot when you need to integrate R with C# application. For more examples, you can visit <a href="https://github.com/MikhailArkhipov/RTVS-cs" class="uri">https://github.com/MikhailArkhipov/RTVS-cs</a>. You can also try <a href="https://github.com/jmp75/rdotnet" class="uri">https://github.com/jmp75/rdotnet</a>, which is another project which allows using R in C#. However, I didn’t test it, so I can’t say anything about it.</p>
+<p><em>Simple console app containing the C# code from this post is available here:</em> <a href="https://github.com/zzawadz/r-from/tree/master/r-from-csharp" class="uri">https://github.com/zzawadz/r-from/tree/master/r-from-csharp</a>.</p>
+</div>
