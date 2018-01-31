@@ -20,7 +20,7 @@ https://simplystatistics.org/2018/01/22/the-dslabs-package-provides-datasets-for
 
 install.packages("dslabs") #CopyAndInstall
 
-#applyrds #rstats #datascience https://t.co/db0LUvCBx8
+\#applyrds #rstats #datascience https://t.co/db0LUvCBx8
 
 <p style='text-align:center'><img src='/img/2018-01-16/DUVUrG3VAAAHEIw.jpg' width='80%'></p>
 
@@ -29,7 +29,7 @@ install.packages("dslabs") #CopyAndInstall
 
 https://github.com/facebookresearch/StarSpace - a general purpose #NLP library from @fb_research. For now, it works only from a command line. However, it's easy to build and use from command line.
 
-#FacebookResearch #applyrds https://t.co/hcyjVdLdIZ
+\#FacebookResearch #applyrds https://t.co/hcyjVdLdIZ
 
 <p style='text-align:center'><img src='/img/2018-01-16/DUfYTadWkAA-WZT.png' width='80%'></p>
 
@@ -38,7 +38,7 @@ https://github.com/facebookresearch/StarSpace - a general purpose #NLP library f
 
 https://research.fb.com/facebook-open-sources-detectron/ - Facebook open sources Detectron, a platform for object detection running on the top of Caffe2.
 
-#applyrds #deeplearning #caffe2 #FacebookResearch https://t.co/fVwdYKmgOa
+\#applyrds #deeplearning #caffe2 #FacebookResearch https://t.co/fVwdYKmgOa
 
 <p style='text-align:center'><img src='/img/2018-01-16/DUaeTqdX0AA_aA5.jpg' width='80%'></p>
 
@@ -47,7 +47,7 @@ https://research.fb.com/facebook-open-sources-detectron/ - Facebook open sources
 
 http://www.win-vector.com/blog/2018/01/supercharge-your-r-code-with-wrapr/ - (by John Mount from Win-Vector) - an #rstats package with some syntactic sugar based on `:=` operator. `let` seems to be very useful, especially for programming with `dplyr`.
 
-#rstats #pkg #applyrds https://t.co/KUTajME7wL
+\#rstats #pkg #applyrds https://t.co/KUTajME7wL
 
 <p style='text-align:center'><img src='/img/2018-01-16/DUp7DhyVAAARE1j.jpg' width='80%'></p>
 
@@ -69,7 +69,7 @@ http://www.alexejgossmann.com/auc/ - (by Alexej Gossmann) probabilistic interpre
 
 "AUC is the probability of correct ranking of a random “positive”-“negative” pair."
 
-#auc #applyrds #datascience #statistics #machinelearning https://t.co/ZGMBCwk5Fh
+\#auc #applyrds #datascience #statistics #machinelearning https://t.co/ZGMBCwk5Fh
 
 <p style='text-align:center'><img src='/img/2018-01-16/DUfn2UDVQAAZQ9y.jpg' width='80%'></p>
 
@@ -80,7 +80,7 @@ https://blog.insightdatascience.com/how-to-solve-90-of-nlp-problems-a-step-by-st
 
 https://news.ycombinator.com/item?id=16224346&utm_content=buffer62cea&utm_medium=social&utm_source=twitter.com&utm_campaign=buffer - link to the HackerNews discussion about this post - there's a bit more info about this topic with a few references (fasttext, etc).
 
-#nlp #applyrds https://t.co/kb5SbCMJBz
+\#nlp #applyrds https://t.co/kb5SbCMJBz
 
 <p style='text-align:center'><img src='/img/2018-01-16/DUaOs3iVMAAVTuR.jpg' width='80%'></p>
 
@@ -91,7 +91,7 @@ http://www.win-vector.com/blog/2018/01/latest-vtreat-up-on-cran/ - a new version
 
 https://winvector.github.io/vtreat/articles/vtreat.html - getting started.
 
-#applyrds #rstats https://t.co/932Pmybmoy
+\#applyrds #rstats https://t.co/932Pmybmoy
 
 <p style='text-align:center'><img src='/img/2018-01-16/DUVFG1uWsAE24e3.jpg' width='80%'></p>
 
