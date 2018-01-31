@@ -58,7 +58,7 @@ https://blog.datascienceheroes.com/exploratory-data-analysis-data-preparation-wi
 
 install.packages("funModeling") #CopyAndInstall
 
-#applyrds #rstat #pkg https://t.co/6XupaosPlC
+\#applyrds #rstat #pkg https://t.co/6XupaosPlC
 
 <p style='text-align:center'><img src='/img/2018-01-16/DUprdyTXcAEF-_Y.jpg' width='80%'></p>
 
