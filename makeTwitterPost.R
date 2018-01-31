@@ -44,7 +44,7 @@ makeRNews <- function(startDate, endDate) {
 ", expandedText, imagesNames)
   code <- paste(code, collapse = "\n")
 
-  date <- "2018-01-16"
+  date <- "2018-01-31"
 
   totalCode <- paste0(
   sprintf("---
@@ -62,12 +62,12 @@ tags:
 
 ### Some interesting Data Science stuff found between %s and %s.
 
-", date, substring(startDate, 1, 10), substring(endDate,1,10), date, date, date),
+", date, substring(endDate, 1, 10), substring(endDate,1,10), date, date, date),
   code, collapse = "\n\n")
 
   cat(totalCode, file = sprintf("content/post/%s-rnews-%s.Rmd", date, date))
 }
 
-startDate <- "2018-01-01 00:00:00"
-endDate <- "2018-01-16 00:00:00"
+endDate <- "2018-01-31 00:00:00"
+startDate <- "2018-01-16 00:00:00"
 makeRNews(startDate, endDate)
