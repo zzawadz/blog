@@ -1,0 +1,145 @@
+---
+title: '[Scala/Spark] Get topics'' words from the LDA model.'
+author: Zygmunt Zawadzki
+date: '2018-02-07'
+slug: scala-spark-get-topics-words-from-lda-model
+categories: 
+  - Scala
+  - Spark
+tags: 
+  - Spark
+  - Scala
+  - udf
+  - LDA
+---
+
+
+
+<p>Some time ago I had to move from <code>sparklyr</code> to Scala for better integration with Spark, and easier collaboration with other developers in a team. Interestingly, this conversion was much easier than I thought because Spark’s DataFrame API is somewhat similar to dplyr, there’s <code>groupBy</code> function, <code>agg</code> instead of <code>summarise</code>, and so on. You can also use traditional, old SQL to operate on data frames. Anyway, in this post, I’ll show how to fit very simple LDA (<code>Latent Dirichlet allocation</code>) model, and then extract information about topic’s words. For some reason, this is a bit more complicated than I thought…</p>
+<p>LDA is a topic model, which allows extracting abstract topics from multiple documents. For example in the case when the document is mostly about machine learning in R (about 90%) and only a small part of the text is about Python, there should be higher probability of finding more R’s words like <code>dplyr</code>, <code>caret</code> or <code>mlr</code>, than Python’s counterparts. I don’t want to dive into the details of the model, for more information, please refer to Wikipedia page <a href="https://en.wikipedia.org/wiki/Topic_model" class="uri">https://en.wikipedia.org/wiki/Topic_model</a> and <a href="https://en.wikipedia.org/wiki/Latent_Dirichlet_allocation" class="uri">https://en.wikipedia.org/wiki/Latent_Dirichlet_allocation</a>.</p>
+<div id="fitting-lda-in-spark." class="section level2">
+<h2>Fitting LDA in Spark.</h2>
+<p>There’s a sample code for fitting LDA in Spark’s documentation - <a href="https://spark.apache.org/docs/2.2.0/ml-clustering.html#latent-dirichlet-allocation-lda" class="uri">https://spark.apache.org/docs/2.2.0/ml-clustering.html#latent-dirichlet-allocation-lda</a>, but for my purpose, I’ll use my version.</p>
+<p>At the beginning of the code, you need to put some import declarations and create some data.</p>
+<pre><code>import org.apache.spark.ml.feature.{CountVectorizer, CountVectorizerModel}
+import org.apache.spark.ml.clustering.LDA
+import org.apache.spark.sql.functions.udf
+import scala.collection.mutable.WrappedArray
+
+val txt = Array(&quot;A B B C&quot;, &quot;A B D D&quot;, &quot;A C D&quot;)</code></pre>
+<p>The <code>txt</code> is a local variable, so for now, we are not using Spark. The next listing shows how to upload the array to the cluster (most of the time the data is read from HDFS, so other functions are used), and then preprocess the data for the fitting process. LDA does not take raw text, but it requires a <code>DataFrame</code> with sparse vectors containing the number of occurrences of each word in the document. Fortunately, this is quite an easy transformation, because Spark contains <code>CountVectorizer</code> which does that job.</p>
+<pre><code>val txtDf     = spark.sparkContext.parallelize(txt).toDF(&quot;txt&quot;)
+val txtDfSplit = txtDf.withColumn(&quot;txt&quot;, split(col(&quot;txt&quot;), &quot; &quot;))
+
+// create sparse vector with the number 
+// of occurrences of each word using CountVectorizer
+val cvModel = new CountVectorizer()
+  .setInputCol(&quot;txt&quot;)
+  .setOutputCol(&quot;features&quot;)
+  .setVocabSize(4)
+  .setMinDF(2)
+  .fit(txtDfSplit)
+  
+val txtDfTrain = cvModel.transform(txtDfSplit)
+txtDfTrain.show(false) //show the DataFrame content
+
+// +------------+-------------------------+
+// |txt         |features                 |
+// +------------+-------------------------+
+// |[A, B, B, C]|(4,[1,2,3],[2.0,1.0,1.0])|
+// |[A, B, D, D]|(4,[0,1,2],[2.0,1.0,1.0])|
+// |[A, C, D]   |(4,[0,2,3],[1.0,1.0,1.0])|
+// +------------+-------------------------+
+</code></pre>
+<p>Then fitting the LDA model is just one line:</p>
+<pre><code>val lda = new LDA().setK(2).setMaxIter(10).fit(txtDfTrain)</code></pre>
+<p>To get the words related to each topic the <code>describeTopics</code> method is used. However it doesn’t return words, but their indices from the dictionary created by <code>CountVectorizer</code>:</p>
+<pre><code>// vocabulary created by CountVectorizer
+val vocab = spark.sparkContext.broadcast(cvModel.vocabulary) 
+// describeTopics output:
+lda.describeTopics(4).show
+
+// +-----+------------+--------------------+
+// |topic| termIndices|         termWeights|
+// +-----+------------+--------------------+
+// |    0|[2, 1, 0, 3]|[0.29972753357517...|
+// |    1|[1, 3, 0, 2]|[0.27815048189882...|
+// +-----+------------+--------------------+
+</code></pre>
+<div id="user-defined-function." class="section level3">
+<h3>User-defined function.</h3>
+<p>To map the indices to the proper word the custom function must be used. Standard Scala functions can’t operate on the <code>DataFrame</code>, columns, so the we need to create Spark’s user-defined function - <code>udf</code> for short. It takes a <code>WrappedArray</code> of integers (because the <code>termIndices</code> cell is, in fact, a <code>WrappedArray[Int]</code>), and returns the array of words extracted from the dictionary.</p>
+<pre><code>val toWords = udf( (x : WrappedArray[Int]) =&gt; { x.map(i =&gt; vocab.value(i)) })
+val topics = lda.describeTopics(4).withColumn(&quot;topicWords&quot;, toWords(col(&quot;termIndices&quot;)))
+topics.select(&quot;topicWords&quot;).show
+
+// +------------+
+// |  topicWords|
+// +------------+
+// |[A, B, D, C]|
+// |[B, C, D, A]|
+// +------------+
+</code></pre>
+<p>The last task it might be to extract the data in the tidy format:</p>
+<pre><code>// +-----+----+-------------------+
+// |topic|word|             weight|
+// +-----+----+-------------------+
+// |    0|   A|0.29972753357517407|
+// |    0|   B| 0.2459495088520157|
+// |    0|   D|0.22775669710607507|
+// |    0|   C|0.22656626046673525|
+// |    1|   B| 0.2781504818988264|
+// |    1|   C| 0.2744447750388326|
+// |    1|   D| 0.2457615751570422|
+// |    1|   A|0.20164316790529874|
+// +-----+----+-------------------+</code></pre>
+<p>To achieve this task a bit more complicated <code>udf</code> function must be used. It merges words, and their weights in one column. Then its easy to explode (it’s the <code>unnest</code> operation in <code>tidyr</code>) the result and split into two columns, one for the term, and second for the weight.</p>
+<pre><code>val wordsWithWeights = udf( (x : WrappedArray[Int], y : WrappedArray[Double]) =&gt; 
+    { x.map(i =&gt; vocab.value(i)).zip(y)}
+)
+
+val topics2 = lda.describeTopics(4).withColumn(&quot;topicWords&quot;, wordsWithWeights(col(&quot;termIndices&quot;), col(&quot;termWeights&quot;)))
+topics2.select(&quot;topicWords&quot;).show(false)
+
+// +---------------------------------------------------------------------------------------------------+
+// |topicWords                                                                                         |
+// +---------------------------------------------------------------------------------------------------+
+// |[[A,0.29972753357517407], [B,0.2459495088520157], [D,0.22775669710607507], [C,0.22656626046673525]]|
+// |[[B,0.2781504818988264], [C,0.2744447750388326], [D,0.2457615751570422], [A,0.20164316790529874]]  |
+// +---------------------------------------------------------------------------------------------------+
+
+
+val topics2exploded = topics2.select(&quot;topic&quot;, &quot;topicWords&quot;).withColumn(&quot;topicWords&quot;, explode(col(&quot;topicWords&quot;)))
+topics2exploded.show
+
+// +-----+--------------------+
+// |topic|          topicWords|
+// +-----+--------------------+
+// |    0|[A,0.299727533575...|
+// |    0|[B,0.245949508852...|
+// |    0|[D,0.227756697106...|
+// |    0|[C,0.226566260466...|
+// |    1|[B,0.278150481898...|
+// |    1|[C,0.274444775038...|
+// |    1|[D,0.245761575157...|
+// |    1|[A,0.201643167905...|
+// +-----+--------------------+
+
+val finalTopic = topics2exploded.select(col(&quot;topic&quot;), col(&quot;topicWords&quot;).getField(&quot;_1&quot;).as(&quot;word&quot;), col(&quot;topicWords&quot;).getField(&quot;_2&quot;).as(&quot;weight&quot;))
+finalTopic.show
+
+// +-----+----+-------------------+
+// |topic|word|             weight|
+// +-----+----+-------------------+
+// |    0|   A|0.29972753357517407|
+// |    0|   B| 0.2459495088520157|
+// |    0|   D|0.22775669710607507|
+// |    0|   C|0.22656626046673525|
+// |    1|   B| 0.2781504818988264|
+// |    1|   C| 0.2744447750388326|
+// |    1|   D| 0.2457615751570422|
+// |    1|   A|0.20164316790529874|
+// +-----+----+-------------------+</code></pre>
+<p>And that’s all for this post. I hope it will be helpful:)</p>
+</div>
+</div>
