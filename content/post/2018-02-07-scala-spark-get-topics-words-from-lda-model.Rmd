@@ -88,7 +88,8 @@ To map the indices to the proper word the custom function must be used. Standard
 
 ```
 val toWords = udf( (x : WrappedArray[Int]) => { x.map(i => vocab.value(i)) })
-val topics = lda.describeTopics(4).withColumn("topicWords", toWords(col("termIndices")))
+val topics = lda.describeTopics(4)
+        .withColumn("topicWords", toWords(col("termIndices")))
 topics.select("topicWords").show
 
 // +------------+
@@ -120,22 +121,28 @@ The last task it might be to extract the data in the tidy format:
 To achieve this task a bit more complicated `udf` function must be used. It merges words, and their weights in one column. Then its easy to explode (it's the `unnest` operation in `tidyr`) the result and split into two columns, one for the term, and second for the weight.
 
 ```
-val wordsWithWeights = udf( (x : WrappedArray[Int], y : WrappedArray[Double]) => 
+val wordsWithWeights = udf( (x : WrappedArray[Int],
+                             y : WrappedArray[Double]) => 
     { x.map(i => vocab.value(i)).zip(y)}
 )
 
-val topics2 = lda.describeTopics(4).withColumn("topicWords", wordsWithWeights(col("termIndices"), col("termWeights")))
+val topics2 = lda.describeTopics(4)
+    .withColumn("topicWords", 
+      wordsWithWeights(col("termIndices"), col("termWeights"))
+    )
 topics2.select("topicWords").show(false)
 
 // +---------------------------------------------------------------------------------------------------+
 // |topicWords                                                                                         |
 // +---------------------------------------------------------------------------------------------------+
-// |[[A,0.29972753357517407], [B,0.2459495088520157], [D,0.22775669710607507], [C,0.22656626046673525]]|
-// |[[B,0.2781504818988264], [C,0.2744447750388326], [D,0.2457615751570422], [A,0.20164316790529874]]  |
+// |[[A,0.299], [B,0.245], [D,0.227], [C,0.226]]|
+// |[[B,0.278], [C,0.274], [D,0.245], [A,0.201]]  |
 // +---------------------------------------------------------------------------------------------------+
 
 
-val topics2exploded = topics2.select("topic", "topicWords").withColumn("topicWords", explode(col("topicWords")))
+val topics2exploded = topics2
+    .select("topic", "topicWords")
+    .withColumn("topicWords", explode(col("topicWords")))
 topics2exploded.show
 
 // +-----+--------------------+
@@ -151,7 +158,12 @@ topics2exploded.show
 // |    1|[A,0.201643167905...|
 // +-----+--------------------+
 
-val finalTopic = topics2exploded.select(col("topic"), col("topicWords").getField("_1").as("word"), col("topicWords").getField("_2").as("weight"))
+val finalTopic = topics2exploded
+  .select(
+    col("topic"), 
+    col("topicWords").getField("_1").as("word"), 
+    col("topicWords").getField("_2").as("weight")
+  )
 finalTopic.show
 
 // +-----+----+-------------------+
