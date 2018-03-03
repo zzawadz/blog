@@ -16,7 +16,7 @@ tags:
 
 ----------
 
-## https://www.youtube.com/watch?v=atiYXm7JZv0 - (by J.J. Allaire from Rstudio) - Machine Learning with R and TensorFlow - a video introduction to Deep Learning in R.
+https://www.youtube.com/watch?v=atiYXm7JZv0 - (by J.J. Allaire from Rstudio) - Machine Learning with R and TensorFlow - a video introduction to Deep Learning in R.
 
 \#deeplearning #rstats #tensorflow #datascience https://t.co/W4SjSTBYQq
 
