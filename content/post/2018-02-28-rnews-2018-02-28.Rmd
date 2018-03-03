@@ -1,0 +1,202 @@
+---
+title: Data Science - News - 2018-02-28
+author: Zygmunt Zawadzki
+date: '2018-02-28'
+slug: news-2018-02-28Rmd
+categories:
+  - R
+tags:
+  - rtips
+  - applyr
+---
+
+
+### Some interesting Data Science stuff found between 2018-02-01 and 2018-02-28.
+
+
+----------
+
+## https://www.youtube.com/watch?v=atiYXm7JZv0 - (by J.J. Allaire from Rstudio) - Machine Learning with R and TensorFlow - a video introduction to Deep Learning in R.
+
+\#deeplearning #rstats #tensorflow #datascience https://t.co/W4SjSTBYQq
+
+<p style='text-align:center'><img src='/img/2018-02-28/DW53-wMVQAEyZ9R.jpg' width='80%'></p>
+
+
+----------
+
+https://towardsdatascience.com/a-tour-of-the-top-10-algorithms-for-machine-learning-newbies-dde4edffae11 - (by James Le) - a collection of some basic ML algorithms for newbies. Pictures in the article are pretty good.
+
+\#datascience #ml https://t.co/QGOliYhXgt
+
+<p style='text-align:center'><img src='/img/2018-02-28/DXJkXunWsAAfKhj.jpg' width='80%'></p>
+
+
+----------
+
+https://tensorflow.rstudio.com/blog/keras-customer-churn.html - (by Matt Dancho) - predicting customer churn using deep learning in R.
+
+\#rstats #keras #deeplearning  https://t.co/01MBSSNc5G
+
+<p style='text-align:center'><img src='/img/2018-02-28/DVYBxtTXUAgDfNo.jpg' width='80%'></p>
+
+
+----------
+
+https://towardsdatascience.com/recommender-engine-under-the-hood-7869d5eab072 - (by Venkat Raman) - some intuitions behind content-based and collaborative filtering recommenders systems with a simple example in Python.
+
+\#datascience #recommenders #python https://t.co/IOA7dBlw8h
+
+<p style='text-align:center'><img src='/img/2018-02-28/DXJUwZRVMAAWPSx.jpg' width='80%'></p>
+
+
+----------
+
+https://activewizards.com/blog/top-15-scala-libraries-for-data-science/ - (by Igor Bobriakov) a collection of useful packages for doing data science in Scala (some machine learning and datavis).
+
+\#scala #datascience https://t.co/KGvMXfDPkJ
+
+<p style='text-align:center'><img src='/img/2018-02-28/DXEauYiXcAABFS6.jpg' width='80%'></p>
+
+
+----------
+
+https://rviews.rstudio.com/2018/02/14/deep-learning-rstudio-conf-2018/ - (by Andrie de Vries) - summary of Deep Learning talks from Deep rstudio::conf 2018 (RStudio conference).
+
+\#rstats #deeplearning #datascience https://t.co/5uvWcr5w6C
+
+<p style='text-align:center'><img src='/img/2018-02-28/DW_RJnZUQAAu0Z5.png' width='80%'></p>
+
+
+----------
+
+http://flowingdata.com/2016/03/22/comparing-ggplot2-and-r-base-graphics/ - (by Nathan Yau) - a comparison of base R graphics and ggplot2. The author seems to prefer good old base graphics - and there's something in it...
+
+\#datavis #rstats #base #datascience https://t.co/knCktHImNq
+
+<p style='text-align:center'><img src='/img/2018-02-28/DW_Bki6W4AU3g_x.jpg' width='80%'></p>
+
+
+----------
+
+http://www.win-vector.com/blog/2018/02/r-tip-use-seq_len-to-avoid-the-backwards-sequence-bug/ - (by John Mount) - small R tip - it's better to use `seq_len()`, rather than `1:n.
+
+\#rstats #datascience https://t.co/lIC8at6OGV
+
+<p style='text-align:center'><img src='/img/2018-02-28/DW6Hi5XUQAAWzIO.jpg' width='80%'></p>
+
+
+----------
+
+https://deanattali.com/blog/shinyalert-package/ - (by Dean Attali) - simple modals for shiny applications.
+
+\#rstats #shiny #datascience https://t.co/fAcnQH4IfT
+
+<p style='text-align:center'><img src='/img/2018-02-28/DWBOgr-X4AEKvCX.jpg' width='80%'></p>
+
+
+----------
+
+http://martin.zinkevich.org/rules_of_ml/rules_of_ml.pdf - (by Martin Zinkevich) - Rules of Machine Learning: Best Practices for ML Engineering - a collection of "best practices" for Machine Learning.
+
+\#datascience #ml #bestpractices
+
+----------
+
+https://appsilondatascience.com/blog/rstats/2018/02/07/circleci.html (by Marek Rogala from Appsilon Data Science) - how to set up continuous integration for your private R projects with CircleCI. CI is also a great way to deploy a model to the production, so it should be familiar for all data scientists.
+
+\#rstats https://t.co/z7G6Cso7Qb
+
+<p style='text-align:center'><img src='/img/2018-02-28/DVxxuNmU0AAlw09.jpg' width='80%'></p>
+
+
+----------
+
+https://www.kdnuggets.com/2018/01/docker-help-become-more-effective-data-scientist.html - (by Hamel Husain)- a short introduction to Docker containers for data scientists.
+
+\#docker https://t.co/aaA55Sm0Gh
+
+<p style='text-align:center'><img src='/img/2018-02-28/DVdLcepVwAAWx_L.jpg' width='80%'></p>
+
+
+----------
+
+http://selbydavid.com/2018/01/09/neural-network/ - (by - David Selby) - building a neural network from scratch in R.
+
+\#deeplearning #rstats  https://t.co/WV4bJPMPhF
+
+<p style='text-align:center'><img src='/img/2018-02-28/DVYRVqJVQAM9qqr.jpg' width='80%'></p>
+
+
+----------
+
+http://blog.revolutionanalytics.com/2018/02/what-does-microsoft-do-with-r.html - (by David Smith) - summary of all Microsoft's tools for R ecosystem (R in SQL Server, Visual Studio, Power BI, foreach package, and much more).
+
+\#rstats #microsoft #datascience https://t.co/wfgIwSwTdj
+
+<p style='text-align:center'><img src='/img/2018-02-28/DXELKGTXUAACrWa.jpg' width='80%'></p>
+
+
+----------
+
+https://www.kdnuggets.com/2018/02/5-machine-learning-projects-overlook-feb-2018.html - (by Matthew Mayo) - I'm not a fan of "5 ... things ... you must/should ...", however, this is an interesting one.  There's sth about fasttext (NLP), Bayesian tools, CatBoost (xgboost alternative) and Keras. It's mostly Python stuff.
+
+ #python https://t.co/Lfh3n9QL3g
+
+<p style='text-align:center'><img src='/img/2018-02-28/DVs3tt5XcAERZ-A.png' width='80%'></p>
+
+
+----------
+
+http://andrewgelman.com/2018/02/03/teach-statistics-course-journalists/ - some guides from Andrew Gelman on teaching journalist statistics. However, I think that that knowledge can be used more broadly for teaching every group interested in statistics.
+
+ #datascience https://t.co/CoAtL54OkH
+
+<p style='text-align:center'><img src='/img/2018-02-28/DVsoLB2U0AApkoU.jpg' width='80%'></p>
+
+
+----------
+
+https://www.kdnuggets.com/2018/02/generalists-dominate-data-science.html - (by Russell Jurney) - data scientist (and others members of the team) should have some general skills to speed up the development cycle. Sometimes, being generalist is better than being a specialist.
+
+ #agiledatascience https://t.co/6oZU3YCoTY
+
+<p style='text-align:center'><img src='/img/2018-02-28/DVnuH9eVwAAyTgG.jpg' width='80%'></p>
+
+
+----------
+
+https://rviews.rstudio.com/2018/02/02/cost-effective-bigquery-with-r/ - (by Roland Stevenson) - bad data representation can be costly... This article remembers me my first query on `Hive` - `select * from table limit 10`. I learned to include `WHERE` in every query;) 
+
+ #db #bigrquery #rstats https://t.co/Selg9OEF4z
+
+<p style='text-align:center'><img src='/img/2018-02-28/DVnejtYU0AACKnR.jpg' width='80%'></p>
+
+
+----------
+
+https://www.displayr.com/r-date-conversion/ - (by Mathew McLean) - another package for working with dates in R.  I think that `lubridate` solves 99% of my problems with dates, but `AsDateTime` might be even easier.
+
+devtools::install_github("Displayr/flipTime") #copyAndInstall
+
+\#rstats #appyrds https://t.co/4Ral1huXZ0
+
+<p style='text-align:center'><img src='/img/2018-02-28/DVikijvWAAAcAC7.jpg' width='80%'></p>
+
+
+----------
+
+http://www.win-vector.com/blog/2018/01/big-cdata-news/ - (by John Mount) - new ways of reshaping the data with `cdata` package from Win-Vector. It allows performing a lot of not so easy transformations in just one step. It seems to be very promising.
+
+\#rstats #pkg  https://t.co/3YA75JVh3o
+
+<p style='text-align:center'><img src='/img/2018-02-28/DViU-p1WkAAmV3O.jpg' width='80%'></p>
+
+
+----------
+
+https://www.kdnuggets.com/2018/01/how-not-lie-statistics.html - (by Kevin Gray) some thoughts on data analysis principles. How to not fool others (and yourself).
+
+ https://t.co/GRdJa1l4sH
+
+<p style='text-align:center'><img src='/img/2018-02-28/DVda7VWWsAEgeJW.jpg' width='80%'></p>
