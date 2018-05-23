@@ -1,0 +1,19 @@
+---
+title: dragulaR with renderUI
+author: ~
+date: '2018-05-23'
+slug: dragular-renderui
+categories:
+  - R
+tags:
+  - shiny
+---
+
+Quite recently someone asked about if it's possible to use my dragulaR (https://github.com/zzawadz/dragulaR) package with `renderUI`. My first thought was that this might be quite hard. I knew that `insertUI` is not a problem because you can set 'immediate = TRUE' parameter, and just after that use 'js$refreshDragulaR("dragula")' to refresh the dragula container. However, with `insertUI` you cannot simply use `refreshDragulaR`, because it must be called when all the elements in the `uiOutput` are ready, and this is not so easy to do so.
+
+However, I give it a try. I created a simple app in which a user can choose columns names from a selected dataset, and print them on the plot (this is unimportant;)). It works pretty well because you can change the data set, and both dragula's containers will be updated correctly. Sadly, I did not solve the problem with refreshing of the container on the R's side after dataset change. The user must perform any action (e.g. change the order of elements in dragula's container), to propagate changes to R. Fortunately, this might be enough in some cases. In this example, the column names selected by the user must match the column names from the dataset.
+
+I hope this will be useful for someone. The code is here: https://github.com/zzawadz/dragulaR/blob/master/inst/apps/example06-dragula-dynamic-elements-renderUI/app.R.
+
+App in action:
+![](https://raw.githubusercontent.com/zzawadz/dragulaR/master/media/renderui.gif)
