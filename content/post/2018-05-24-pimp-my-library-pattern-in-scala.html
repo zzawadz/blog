@@ -1,0 +1,65 @@
+---
+title: Pimp My Library Pattern in Scala
+author: Zygmunt Zawadzki
+date: '2018-05-24'
+slug: pimp-my-library-pattern-in-scala
+categories: []
+tags:
+  - scala
+---
+
+
+
+<p>My primary language for data analysis is still R. However, when it comes to the Big Data I prefer Scala because of it is the central language behind Spark, and gives more freedom than the <code>sparklyr</code> interface (I sometimes use <code>sparklyr,</code> but this is a topic for another post).</p>
+<p>When I started my journey with Scala I found, that it is possible to achieve a lot with knowing just the Spark’s API and a bit of SQL. Nevertheless, I also realized that to take advantage of the full power of the native Spark API I need to learn more Scala’s stuff. There are a lot of impressive parts of the Scala, but in this post, I discuss one thing - something called “Pimp My Library” pattern. I want something like this in R:)</p>
+<p>To get some knowledge of a language, I think it’s reasonable to find a library and read some code, to feel the syntax and see some constructs. My first choice was nscala-time (<a href="https://github.com/nscala-time/nscala-time" class="uri">https://github.com/nscala-time/nscala-time</a>), it’s a library for dealing with time. In the main folder with a code I found something like this:</p>
+<pre class="scala"><code>/**
+ * The marker trait that this type is for &#39;pimp my library&#39; pattern.
+ */
+trait PimpedType[T] extends Any{
+  def underlying: T
+}</code></pre>
+<p>I googled the phrase “pimp my library scala”, and found this article - <a href="https://coderwall.com/p/k_1jzw/scala-s-pimp-my-library-pattern-example" class="uri">https://coderwall.com/p/k_1jzw/scala-s-pimp-my-library-pattern-example</a>, and in this article in the comments a link for <a href="https://docs.scala-lang.org/overviews/core/value-classes.html" class="uri">https://docs.scala-lang.org/overviews/core/value-classes.html</a>.</p>
+<p>So, what’s going on? It turns out that Scala allows adding a new method to the existing class (there are some restrictions, for more information read official documentation - <a href="https://docs.scala-lang.org/overviews/core/value-classes.html" class="uri">https://docs.scala-lang.org/overviews/core/value-classes.html</a>).</p>
+<p>So you can define a new method for <code>Int</code> class, like this (the example is taken from the nscala-time):</p>
+<pre class="scala"><code>DateTime.now() + 2.months 
+// returns org.joda.time.DateTime = 2009-06-27T13:25:59.195-07:00
+
+2.hours + 45.minutes + 10.seconds
+// returns com.github.nscala_time.time.DurationBuilder
+// (can be used as a Duration or as a Period)</code></pre>
+<p>Methods <code>months</code>, <code>hours</code>, <code>minutes</code>, <code>seconds</code> can be used directly on the <code>Int</code> object. What it’s even more interesting, this functionality is effortless. In my example, I’m using it to add three new functions to the <code>org.joda.time.LocalDate</code> class (it’s used to represent a time in a YYYY-DD-MM format). The first function returns a sequence of all days from the current day of the month to the end. Second - from the beginning to the current date, and last function - from the beginning of the month to the end.</p>
+<pre class="scala"><code>
+import com.github.nscala_time.time.Imports._
+
+object nscalatest {
+
+    implicit class SeqFncLocalDate(val date: LocalDate) extends AnyVal {
+        def toMonthEndSeq = (date.day.get to date.day.getMaximumValue).map(date.day(_))
+        def fromMonthStartSeq = (date.day.getMinimumValue to date.day.get).map(date.day(_))
+        def allDaysSeq = (date.day.getMinimumValue to date.day.getMaximumValue).map(date.day(_))
+    }
+  
+  
+  val start = LocalDate.parse(&quot;2018-01-15&quot;)
+  //&gt; start  : org.joda.time.LocalDate = 2018-01-15
+  LocalDate.parse(&quot;2018-01-25&quot;).toMonthEndSeq     
+  //&gt; res0: scala.collection.immutable.IndexedSeq[org.joda.time.LocalDate] = Vecto
+  //| r(2018-01-25, 2018-01-26, 2018-01-27, 2018-01-28, 2018-01-29, 2018-01-30, 20
+  //| 18-01-31)
+  LocalDate.parse(&quot;2018-01-05&quot;).fromMonthStartSeq 
+  //&gt; res1: scala.collection.immutable.IndexedSeq[org.joda.time.LocalDate] = Vecto
+  //| r(2018-01-01, 2018-01-02, 2018-01-03, 2018-01-04, 2018-01-05)
+  LocalDate.parse(&quot;2018-01-01&quot;).fromMonthStartSeq 
+  //&gt; res2: scala.collection.immutable.IndexedSeq[org.joda.time.LocalDate] = Vecto
+  //| r(2018-01-01)
+  LocalDate.parse(&quot;2018-01-15&quot;).allDaysSeq        
+  //&gt; res3: scala.collection.immutable.IndexedSeq[org.joda.time.LocalDate] = Vecto
+  //| r(2018-01-01, 2018-01-02, 2018-01-03, 2018-01-04, 2018-01-05, 2018-01-06, 20
+  //| 18-01-07, 2018-01-08, 2018-01-09, 2018-01-10, 2018-01-11, 2018-01-12, 2018-0
+  //| 1-13, 2018-01-14, 2018-01-15, 2018-01-16, 2018-01-17, 2018-01-18, 2018-01-19
+  //| , 2018-01-20, 2018-01-21, 2018-01-22, 2018-01-23, 2018-01-24, 2018-01-25, 20
+  //| 18-01-26, 2018-01-27, 2018-01-28, 2018-01-29, 2018-01-30, 2018-01-31)
+}</code></pre>
+<p>It’s as simple as this.</p>
+<p>Takeaway: - You can use “Pimp My Library” pattern to add new methods to the existing classes. - nscala-time is an excellent library for working with dates in Scala. It’s is built on the top of Java’s Joda-Time. - Adding methods to the existing classes is also described in “Scala Cookbook” (<a href="http://shop.oreilly.com/product/0636920026914.do" class="uri">http://shop.oreilly.com/product/0636920026914.do</a>).</p>
