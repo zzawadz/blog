@@ -43,16 +43,20 @@ object nscalatest {
   
   val start = LocalDate.parse(&quot;2018-01-15&quot;)
   //&gt; start  : org.joda.time.LocalDate = 2018-01-15
+  
   LocalDate.parse(&quot;2018-01-25&quot;).toMonthEndSeq     
   //&gt; res0: scala.collection.immutable.IndexedSeq[org.joda.time.LocalDate] = Vecto
   //| r(2018-01-25, 2018-01-26, 2018-01-27, 2018-01-28, 2018-01-29, 2018-01-30, 20
   //| 18-01-31)
+  
   LocalDate.parse(&quot;2018-01-05&quot;).fromMonthStartSeq 
   //&gt; res1: scala.collection.immutable.IndexedSeq[org.joda.time.LocalDate] = Vecto
   //| r(2018-01-01, 2018-01-02, 2018-01-03, 2018-01-04, 2018-01-05)
+  
   LocalDate.parse(&quot;2018-01-01&quot;).fromMonthStartSeq 
   //&gt; res2: scala.collection.immutable.IndexedSeq[org.joda.time.LocalDate] = Vecto
   //| r(2018-01-01)
+  
   LocalDate.parse(&quot;2018-01-15&quot;).allDaysSeq        
   //&gt; res3: scala.collection.immutable.IndexedSeq[org.joda.time.LocalDate] = Vecto
   //| r(2018-01-01, 2018-01-02, 2018-01-03, 2018-01-04, 2018-01-05, 2018-01-06, 20
