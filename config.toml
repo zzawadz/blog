@@ -20,7 +20,7 @@ ignoreFiles = ["\\.Rmd$", "_files$", "_cache$"]
     url = "https://www.linkedin.com/in/zygmunt-zawadzki-81525b92/"
 
 [params]
-    description = "zstat.pl blog"
+    description = "Blog about R, Scala, Shiny, Spark, statistics, data science, machine learning and other stuff."
 
     # options for highlight.js (version, additional languages, and theme)
     highlightjsVersion = "9.10.0"
