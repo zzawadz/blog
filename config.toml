@@ -4,7 +4,6 @@ languageCode = "en-us"
 title = "zstat.pl - blog"
 theme = "hugo-lithium-theme"
 googleAnalytics = ""
-disqusShortname = "blog-zstat"
 ignoreFiles = ["\\.Rmd$", "_files$", "_cache$"]
 
 [permalinks]
