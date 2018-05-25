@@ -82,6 +82,7 @@ object nscalatest {
 It's as simple as this.
 
 Takeaway:
+
 - You can use  "Pimp My Library" pattern to add new methods to the existing classes.
 - nscala-time is an excellent library for working with dates in Scala. It's is built on the top of Java's Joda-Time.
 - Adding methods to the existing classes is also described in "Scala Cookbook" (http://shop.oreilly.com/product/0636920026914.do).
