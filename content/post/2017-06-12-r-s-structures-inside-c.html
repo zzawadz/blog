@@ -57,9 +57,9 @@ x &lt;- c(1,2,3)
 y &lt;- x
 
 address(x)</code></pre>
-<pre><code>## [1] &quot;0x34acb20&quot;</code></pre>
+<pre><code>## [1] &quot;0x558f768bd770&quot;</code></pre>
 <pre class="r"><code>address(y)</code></pre>
-<pre><code>## [1] &quot;0x34acb20&quot;</code></pre>
+<pre><code>## [1] &quot;0x558f768bd770&quot;</code></pre>
 <pre class="r"><code>address(x) == address(y)</code></pre>
 <pre><code>## [1] TRUE</code></pre>
 <p>The x and y share the same address in the memory. When we modify x in R session, the interpreter knows that x must be moved to another place because making any change in that chunk of memory affects not only x but also y. C++ just blindly writes new values to that place, without taking care that there are more variables associated with that address. In C++ the R interpreted does not work!</p>

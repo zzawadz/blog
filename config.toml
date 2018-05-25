@@ -2,7 +2,7 @@ baseurl = "https://www.zstat.pl/"
 relativeurls = true
 languageCode = "en-us"
 title = "zstat.pl - blog"
-theme = "hugo-lithium-theme"
+theme = "hugo-theme-bootstrap4-blog"
 googleAnalytics = ""
 ignoreFiles = ["\\.Rmd$", "_files$", "_cache$"]
 
