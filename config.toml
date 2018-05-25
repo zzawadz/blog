@@ -9,13 +9,13 @@ ignoreFiles = ["\\.Rmd$", "_files$", "_cache$"]
 [permalinks]
     post = "/:year/:month/:day/:slug/"
 
-[[menu.main]]
+[[menu.navbar]]
     name = "About"
     url = "/about/"
-[[menu.main]]
+[[menu.navbar]]
     name = "Twitter"
     url = "https://twitter.com/zzawadz"
-[[menu.main]]
+[[menu.navbar]]
     name = "LinkedIn"
     url = "https://www.linkedin.com/in/zygmunt-zawadzki-81525b92/"
 
@@ -34,3 +34,8 @@ ignoreFiles = ["\\.Rmd$", "_files$", "_cache$"]
     height = 50
     alt = "Logo"
 
+  [params.sidebar]
+    # Optional about block for sidebar (can be Markdown)
+
+    # How many posts to show on the sidebar (Default: 5)
+    num_recent_posts = 5
