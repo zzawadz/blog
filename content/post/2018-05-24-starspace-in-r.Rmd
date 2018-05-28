@@ -1,0 +1,43 @@
+---
+title: StarSpace in R
+date: '2018-05-28'
+tags:
+  - R
+  - NLP
+  - Scala
+---
+
+I enjoyed work with Facebook's fastText (https://github.com/facebookresearch/fastText) library and its R's wrapper fastrtext (https://github.com/pommedeterresautee/fastrtext). However, I want to spend some more time with StarSpace library (also Facebook's library for NLP). Unfortunately, there's no R package for StarSpace!
+
+It's quite surprising because I there are thousands of packages. Nevertheless, this one is missing. In the end, I decided to write my wrapper - https://github.com/zzawadz/StarSpaceR.
+
+I had some problems with compilation because of dozens of compiler flags which must be set before compilation. I think that for the first time I had to use custom configure script to set up everything paths, flags and so on. The good thing is that in the `configure` script you can just simply run an R script to do all the job.
+
+I also use some code from `fastrtext`. The author had a brilliant idea to include a custom header with some macros to change fastText behavior, like redirect streams to the R console, rename the `main` function to pass `CMD check` and so on. If you are interested, check his code here: https://github.com/pommedeterresautee/fastrtext/blob/master/src/r_compliance.h.
+
+The current version only supports loading model to the memory and extracting words embeddings for a set of words. Check the example below:
+.
+```
+# library(devtools)
+# install_github("zzawadz/StarSpaceR")
+
+# There's simple, pretrained model included in the package.
+modelPath <- system.file(package = "StarSpaceR", "exdata/model_class")
+
+model <- ssr_load_model(modelPath) # load model to the memory
+model$get_vectors(c("words", "topology")) # get word embeddings
+
+#                 [,1]         [,2]         [,3]        [,4] ...
+# words    -0.00479455 -0.002737640 -0.000592433 -0.00318651 ...
+# topology  0.00753618  0.000651733 -0.012981600 -0.01609830 ...
+```
+
+If you have any comments or ideas reach me on Twitter (@zzawadz) or fill an issue on Github (https://github.com/zzawadz/StarSpaceR/issues).
+
+## Warning!
+
+Be cautious. There's a big problem with the package. An attempt to get the word not present in the dictionary may cause the fatal error and a crash of the whole R session. I will be examining this problem in the meantime (I think it's a great way to learn all the internals!), but you are warned:) Do not use this on the production!
+```
+# Not run
+# model$get_vectors(c("wor"))
+```
