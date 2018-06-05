@@ -1,0 +1,86 @@
+---
+title: Caching function's result based on file modification time in R.
+date: '2018-05-28'
+tags:
+  - R
+---
+
+
+
+<p>I had some time to look at some of my started, yet never finished projects. I found something which served me very well for some time, and it was quite useful.</p>
+<p>In my one project, I was working with a lot of large logs files. In the beginning, I was loading the whole file into R memory, and then I was processing it using <code>stringi</code> package and other tools. This was not the best solution. The reading of file which contains a few gigabytes of data takes a lot of time and uses a lot of memory, so I was able to process only one file at a time. Then I found <code>AWK</code> which is a great, small utility language which can solve a lot of common problems with working with logs files. For some time it was my go-to language for this type of tasks. In the end, I wrote a parser in <code>C++</code> to directly export data to the R session but this is a different story.</p>
+<p>I started to write a package called <code>rawk</code> to allow directly calling <code>AWK</code> scripts from R console. I don’t know if interface works properly (as I said, I switched to <code>C++</code>…), but there’s one interesting function which allows a user to cache a function result based on file modification time. So if a file was not changed since last function call, the result will be read from the cache located on the disk.</p>
+<p>Let me show you an example:</p>
+<pre class="r"><code>library(rawk)</code></pre>
+<pre><code>## Loading required package: stringi</code></pre>
+<pre class="r"><code>fnc &lt;- function(file) {
+   n &lt;- as.numeric(readLines(file, warn = FALSE))
+   rnorm(n) # some random values
+}
+
+file &lt;- tempfile()
+cat(5, file = file)
+
+# Every call leads to different result.
+fnc(file)</code></pre>
+<pre><code>## [1]  1.5302621  1.8411184  0.6062396 -0.7391250 -1.1410434</code></pre>
+<pre class="r"><code>fnc(file)</code></pre>
+<pre><code>## [1] -0.09216405 -1.72464042  0.24714161 -0.37664782  0.02649647</code></pre>
+<pre class="r"><code>all.equal(fnc(file), fnc(file))</code></pre>
+<pre><code>## [1] &quot;Mean relative difference: 0.9787077&quot;</code></pre>
+<pre class="r"><code># Create new version with cache:
+fcached &lt;- file_modification_time_cache(fnc)
+
+fcached(file)</code></pre>
+<pre><code>## Saved /tmp/RtmpnOk8qx/file1c1d3f53bc31, last access time: 2018-06-05 20:33:30, hash: 6f0f098a822c6bf913a033a4bf80d2ce</code></pre>
+<pre><code>## [1] -0.9713521  0.2170260 -1.7880969 -1.3379355  0.9643747</code></pre>
+<pre class="r"><code>fcached(file) # The same</code></pre>
+<pre><code>## Loaded /tmp/RtmpnOk8qx/file1c1d3f53bc31, last access time: 2018-06-05 20:33:30, hash: 6f0f098a822c6bf913a033a4bf80d2ce</code></pre>
+<pre><code>## [1] -0.9713521  0.2170260 -1.7880969 -1.3379355  0.9643747</code></pre>
+<pre class="r"><code>all.equal(fcached(file), fcached(file)) # still the same</code></pre>
+<pre><code>## Loaded /tmp/RtmpnOk8qx/file1c1d3f53bc31, last access time: 2018-06-05 20:33:30, hash: 6f0f098a822c6bf913a033a4bf80d2ce</code></pre>
+<pre><code>## Loaded /tmp/RtmpnOk8qx/file1c1d3f53bc31, last access time: 2018-06-05 20:33:30, hash: 6f0f098a822c6bf913a033a4bf80d2ce</code></pre>
+<pre><code>## [1] TRUE</code></pre>
+<pre class="r"><code>x &lt;- fcached(file)</code></pre>
+<pre><code>## Loaded /tmp/RtmpnOk8qx/file1c1d3f53bc31, last access time: 2018-06-05 20:33:30, hash: 6f0f098a822c6bf913a033a4bf80d2ce</code></pre>
+<pre class="r"><code>cat(5, file = file)
+y &lt;- fcached(file)</code></pre>
+<pre><code>## Saved /tmp/RtmpnOk8qx/file1c1d3f53bc31, last access time: 2018-06-05 20:33:30, hash: b4cefdb68d77628b8586d91dfee08135</code></pre>
+<pre class="r"><code>all.equal(x, y) # different</code></pre>
+<pre><code>## [1] &quot;Mean relative difference: 1.023743&quot;</code></pre>
+<p>Here’s second example with function with two parameters:</p>
+<pre class="r"><code>fnc2 &lt;- function(file, k = 2) {
+   n &lt;- as.numeric(readLines(file, warn = FALSE))
+   rnorm(n * k)
+}
+
+fcached2 &lt;- file_modification_time_cache(fnc2)
+all.equal(fcached2(file,1), fcached2(file,1))</code></pre>
+<pre><code>## Saved /tmp/RtmpnOk8qx/file1c1d3f53bc31, last access time: 2018-06-05 20:33:30, hash: 3269d0dc9daf77d1dd486b43e7d15afc</code></pre>
+<pre><code>## Loaded /tmp/RtmpnOk8qx/file1c1d3f53bc31, last access time: 2018-06-05 20:33:30, hash: 3269d0dc9daf77d1dd486b43e7d15afc</code></pre>
+<pre><code>## [1] TRUE</code></pre>
+<pre class="r"><code>all.equal(fcached2(file,1), fcached2(file,2))</code></pre>
+<pre><code>## Loaded /tmp/RtmpnOk8qx/file1c1d3f53bc31, last access time: 2018-06-05 20:33:30, hash: 3269d0dc9daf77d1dd486b43e7d15afc</code></pre>
+<pre><code>## Saved /tmp/RtmpnOk8qx/file1c1d3f53bc31, last access time: 2018-06-05 20:33:30, hash: 7f072e9180db6457bffecff94bea640e</code></pre>
+<pre><code>## [1] &quot;Numeric: lengths (5, 10) differ&quot;</code></pre>
+<pre class="r"><code># Remove cache directory
+if(file.exists(&quot;.cache&quot;)) unlink(&quot;.cache&quot;, recursive = TRUE)</code></pre>
+<div id="warning-the-first-argument-of-the-cached-must-be-a-path-to-the-file-which-time-will-be-tested." class="section level5">
+<h5>Warning! The first argument of the cached must be a path to the file, which time will be tested.</h5>
+<p>Cached functions prints nicely:</p>
+<pre class="r"><code>fcached2</code></pre>
+<pre><code>## Function with a cache based on the file modification time
+## 
+## Cache directory:  /home/zzawadz/OpenRepos/blog/content/post/.cache/fnc2
+## To force recalculation please use .FORCE_RECALC = TRUE
+## 
+## Original function:
+## function(file, k = 2) {
+##    n &lt;- as.numeric(readLines(file, warn = FALSE))
+##    rnorm(n * k)
+## }
+## &lt;bytecode: 0x5592db3233e8&gt;</code></pre>
+<p>To install this package use:</p>
+<pre><code>devtools::install_github(&quot;zzawadz/rawk&quot;)</code></pre>
+<p>If you find this interesting, reach me on Twitter (<span class="citation">@zzawadz</span>) or Github.</p>
+</div>

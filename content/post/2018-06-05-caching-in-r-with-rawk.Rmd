@@ -1,0 +1,75 @@
+---
+title: Caching function's result based on file modification time in R.
+date: '2018-05-28'
+tags:
+  - R
+---
+
+I had some time to look at some of my started, yet never finished projects. I found something which served me very well for some time, and it was quite useful.
+
+In my one project, I was working with a lot of large logs files. In the beginning, I was loading the whole file into R memory, and then I was processing it using `stringi` package and other tools. This was not the best solution. The reading of file which contains a few gigabytes of data takes a lot of time and uses a lot of memory, so I was able to process only one file at a time. Then I found `AWK` which is a great, small utility language which can solve a lot of common problems with working with logs files. For some time it was my go-to language for this type of tasks. In the end, I wrote a parser in `C++` to directly export data to the R session but this is a different story.
+
+I started to write a package called `rawk` to allow directly calling `AWK` scripts from R console. I don't know if interface works properly (as I said, I switched to `C++`...), but there's one interesting function which allows a user to cache a function result based on file modification time. So if a file was not changed since last function call, the result will be read from the cache located on the disk.
+
+Let me show you an example:
+
+```{r}
+library(rawk)
+fnc <- function(file) {
+   n <- as.numeric(readLines(file, warn = FALSE))
+   rnorm(n) # some random values
+}
+
+file <- tempfile()
+cat(5, file = file)
+
+# Every call leads to different result.
+fnc(file)
+fnc(file)
+
+all.equal(fnc(file), fnc(file))
+
+# Create new version with cache:
+fcached <- file_modification_time_cache(fnc)
+
+fcached(file)
+fcached(file) # The same
+all.equal(fcached(file), fcached(file)) # still the same
+
+x <- fcached(file)
+cat(5, file = file)
+y <- fcached(file)
+all.equal(x, y) # different
+```
+
+Here's second example with function with two parameters:
+
+```{R}
+fnc2 <- function(file, k = 2) {
+   n <- as.numeric(readLines(file, warn = FALSE))
+   rnorm(n * k)
+}
+
+fcached2 <- file_modification_time_cache(fnc2)
+all.equal(fcached2(file,1), fcached2(file,1))
+all.equal(fcached2(file,1), fcached2(file,2))
+
+# Remove cache directory
+if(file.exists(".cache")) unlink(".cache", recursive = TRUE)
+```
+
+##### Warning! The first argument of the cached must be a path to the file, which time will be tested. 
+
+Cached functions prints nicely:
+
+```{R}
+fcached2
+```
+
+To install this package use:
+
+```
+devtools::install_github("zzawadz/rawk")
+```
+
+If you find this interesting, reach me on Twitter (@zzawadz) or Github.
