@@ -1,0 +1,55 @@
+---
+title: DepthProc hit 20k downloads.
+date: '2018-06-11'
+tags:
+  - R
+---
+
+My first package published on CRAN - DepthProc recently hit 20k downloads.
+
+```{r, cache=TRUE}
+
+library(cranlogs)
+library(ggplot2)
+downloads <-
+cran_downloads("DepthProc", from = "2014-08-21", to = "2018-06-10")
+
+ggplot(downloads) +
+  geom_line(aes(x = date, y = cumsum(count))) +
+  ylab("Downloads") + xlab("Date") + theme_bw() +
+  ggtitle("DepthProc", "Download stats")
+
+```
+
+There are some jumps on the line. I wondered if they all occurred just after the package release (old users updates to the new versions). Here's some code to check this.
+
+```{r, message=FALSE, warning=FALSE, cache=TRUE}
+library(rvest)
+library(lubridate)
+library(dplyr)
+path <- "https://cran.r-project.org/src/contrib/Archive/DepthProc/"
+
+versionDate <- html_table(read_html(path))[[1]]
+versionDate <- versionDate[,c(2,3)]
+versionDate <- versionDate %>% filter(grepl(Name, pattern = "DepthProc")) %>% mutate(Date = ymd(substring(`Last modified`, 1, 10))) %>% select(Date)
+
+versionDate <- bind_rows(versionDate, data_frame(Date = ymd("2018-06-05"))) # Add current release
+versionDate
+
+ggplot() + 
+  geom_line(data = downloads, aes(x = date, y = cumsum(count))) + 
+  ylab("Downloads") + xlab("Date") + theme_bw() + 
+  ggtitle("DepthProc", "Download stats (vertical bars indicates new versions)") +
+  geom_vline(data = versionDate, 
+      aes(xintercept = Date), color = "darkgreen", linetype = "dashed")
+
+```
+
+It seems that the main jump was related to something else. Anyway, it's good to see that people use your work:)
+
+If you have any questions about the package please send me an email or post an issue on the package's GitHub page (https://github.com/zzawadz/DepthProc/issues).
+
+### Useful links:
+
+- https://www.depthproc.zstat.pl/ - the package website (built with `pkgdown`).
+- https://arxiv.org/abs/1408.4542 - description of the package's capabilities.

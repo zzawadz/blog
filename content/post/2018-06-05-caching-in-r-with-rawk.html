@@ -1,6 +1,6 @@
 ---
 title: Caching function's result based on file modification time in R.
-date: '2018-05-28'
+date: '2018-06-05'
 tags:
   - R
 ---
@@ -23,31 +23,31 @@ cat(5, file = file)
 
 # Every call leads to different result.
 fnc(file)</code></pre>
-<pre><code>## [1]  1.5302621  1.8411184  0.6062396 -0.7391250 -1.1410434</code></pre>
+<pre><code>## [1]  1.7292008 -0.7771388 -0.8288712  1.2283018  1.5488494</code></pre>
 <pre class="r"><code>fnc(file)</code></pre>
-<pre><code>## [1] -0.09216405 -1.72464042  0.24714161 -0.37664782  0.02649647</code></pre>
+<pre><code>## [1]  0.3996558  0.6140268 -1.5532091  0.6053978 -0.8762381</code></pre>
 <pre class="r"><code>all.equal(fnc(file), fnc(file))</code></pre>
-<pre><code>## [1] &quot;Mean relative difference: 0.9787077&quot;</code></pre>
+<pre><code>## [1] &quot;Mean relative difference: 1.321012&quot;</code></pre>
 <pre class="r"><code># Create new version with cache:
 fcached &lt;- file_modification_time_cache(fnc)
 
 fcached(file)</code></pre>
-<pre><code>## Saved /tmp/RtmpnOk8qx/file1c1d3f53bc31, last access time: 2018-06-05 20:33:30, hash: 6f0f098a822c6bf913a033a4bf80d2ce</code></pre>
-<pre><code>## [1] -0.9713521  0.2170260 -1.7880969 -1.3379355  0.9643747</code></pre>
+<pre><code>## Saved /tmp/RtmpGFc6QR/file20af3c6a00eb, last access time: 2018-06-11 17:25:00, hash: 1e52d81baaf67f2c78390fd68d0a2708</code></pre>
+<pre><code>## [1] -0.2194635 -0.3953327  2.0352932  1.7291420 -0.9027834</code></pre>
 <pre class="r"><code>fcached(file) # The same</code></pre>
-<pre><code>## Loaded /tmp/RtmpnOk8qx/file1c1d3f53bc31, last access time: 2018-06-05 20:33:30, hash: 6f0f098a822c6bf913a033a4bf80d2ce</code></pre>
-<pre><code>## [1] -0.9713521  0.2170260 -1.7880969 -1.3379355  0.9643747</code></pre>
+<pre><code>## Loaded /tmp/RtmpGFc6QR/file20af3c6a00eb, last access time: 2018-06-11 17:25:00, hash: 1e52d81baaf67f2c78390fd68d0a2708</code></pre>
+<pre><code>## [1] -0.2194635 -0.3953327  2.0352932  1.7291420 -0.9027834</code></pre>
 <pre class="r"><code>all.equal(fcached(file), fcached(file)) # still the same</code></pre>
-<pre><code>## Loaded /tmp/RtmpnOk8qx/file1c1d3f53bc31, last access time: 2018-06-05 20:33:30, hash: 6f0f098a822c6bf913a033a4bf80d2ce</code></pre>
-<pre><code>## Loaded /tmp/RtmpnOk8qx/file1c1d3f53bc31, last access time: 2018-06-05 20:33:30, hash: 6f0f098a822c6bf913a033a4bf80d2ce</code></pre>
+<pre><code>## Loaded /tmp/RtmpGFc6QR/file20af3c6a00eb, last access time: 2018-06-11 17:25:00, hash: 1e52d81baaf67f2c78390fd68d0a2708</code></pre>
+<pre><code>## Loaded /tmp/RtmpGFc6QR/file20af3c6a00eb, last access time: 2018-06-11 17:25:00, hash: 1e52d81baaf67f2c78390fd68d0a2708</code></pre>
 <pre><code>## [1] TRUE</code></pre>
 <pre class="r"><code>x &lt;- fcached(file)</code></pre>
-<pre><code>## Loaded /tmp/RtmpnOk8qx/file1c1d3f53bc31, last access time: 2018-06-05 20:33:30, hash: 6f0f098a822c6bf913a033a4bf80d2ce</code></pre>
+<pre><code>## Loaded /tmp/RtmpGFc6QR/file20af3c6a00eb, last access time: 2018-06-11 17:25:00, hash: 1e52d81baaf67f2c78390fd68d0a2708</code></pre>
 <pre class="r"><code>cat(5, file = file)
 y &lt;- fcached(file)</code></pre>
-<pre><code>## Saved /tmp/RtmpnOk8qx/file1c1d3f53bc31, last access time: 2018-06-05 20:33:30, hash: b4cefdb68d77628b8586d91dfee08135</code></pre>
+<pre><code>## Saved /tmp/RtmpGFc6QR/file20af3c6a00eb, last access time: 2018-06-11 17:25:00, hash: 3c77cf31fb489ff19dbe6250dad852b3</code></pre>
 <pre class="r"><code>all.equal(x, y) # different</code></pre>
-<pre><code>## [1] &quot;Mean relative difference: 1.023743&quot;</code></pre>
+<pre><code>## [1] &quot;Mean relative difference: 0.9376313&quot;</code></pre>
 <p>Here’s second example with function with two parameters:</p>
 <pre class="r"><code>fnc2 &lt;- function(file, k = 2) {
    n &lt;- as.numeric(readLines(file, warn = FALSE))
@@ -56,12 +56,12 @@ y &lt;- fcached(file)</code></pre>
 
 fcached2 &lt;- file_modification_time_cache(fnc2)
 all.equal(fcached2(file,1), fcached2(file,1))</code></pre>
-<pre><code>## Saved /tmp/RtmpnOk8qx/file1c1d3f53bc31, last access time: 2018-06-05 20:33:30, hash: 3269d0dc9daf77d1dd486b43e7d15afc</code></pre>
-<pre><code>## Loaded /tmp/RtmpnOk8qx/file1c1d3f53bc31, last access time: 2018-06-05 20:33:30, hash: 3269d0dc9daf77d1dd486b43e7d15afc</code></pre>
+<pre><code>## Saved /tmp/RtmpGFc6QR/file20af3c6a00eb, last access time: 2018-06-11 17:25:00, hash: 6c2efe5a285284329afdbd9a1620eef9</code></pre>
+<pre><code>## Loaded /tmp/RtmpGFc6QR/file20af3c6a00eb, last access time: 2018-06-11 17:25:00, hash: 6c2efe5a285284329afdbd9a1620eef9</code></pre>
 <pre><code>## [1] TRUE</code></pre>
 <pre class="r"><code>all.equal(fcached2(file,1), fcached2(file,2))</code></pre>
-<pre><code>## Loaded /tmp/RtmpnOk8qx/file1c1d3f53bc31, last access time: 2018-06-05 20:33:30, hash: 3269d0dc9daf77d1dd486b43e7d15afc</code></pre>
-<pre><code>## Saved /tmp/RtmpnOk8qx/file1c1d3f53bc31, last access time: 2018-06-05 20:33:30, hash: 7f072e9180db6457bffecff94bea640e</code></pre>
+<pre><code>## Loaded /tmp/RtmpGFc6QR/file20af3c6a00eb, last access time: 2018-06-11 17:25:00, hash: 6c2efe5a285284329afdbd9a1620eef9</code></pre>
+<pre><code>## Saved /tmp/RtmpGFc6QR/file20af3c6a00eb, last access time: 2018-06-11 17:25:00, hash: fa2340837a013a17250a3f8bd94bd3d6</code></pre>
 <pre><code>## [1] &quot;Numeric: lengths (5, 10) differ&quot;</code></pre>
 <pre class="r"><code># Remove cache directory
 if(file.exists(&quot;.cache&quot;)) unlink(&quot;.cache&quot;, recursive = TRUE)</code></pre>
@@ -79,7 +79,7 @@ if(file.exists(&quot;.cache&quot;)) unlink(&quot;.cache&quot;, recursive = TRUE)
 ##    n &lt;- as.numeric(readLines(file, warn = FALSE))
 ##    rnorm(n * k)
 ## }
-## &lt;bytecode: 0x5592db3233e8&gt;</code></pre>
+## &lt;bytecode: 0x5574b8b806b0&gt;</code></pre>
 <p>To install this package use:</p>
 <pre><code>devtools::install_github(&quot;zzawadz/rawk&quot;)</code></pre>
 <p>If you find this interesting, reach me on Twitter (<span class="citation">@zzawadz</span>) or Github.</p>

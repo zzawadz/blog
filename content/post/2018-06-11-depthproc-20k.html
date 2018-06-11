@@ -1,0 +1,57 @@
+---
+title: DepthProc hit 20k downloads.
+date: '2018-06-11'
+tags:
+  - R
+---
+
+
+
+<p>My first package published on CRAN - DepthProc recently hit 20k downloads.</p>
+<pre class="r"><code>library(cranlogs)
+library(ggplot2)
+downloads &lt;-
+cran_downloads(&quot;DepthProc&quot;, from = &quot;2014-08-21&quot;, to = &quot;2018-06-10&quot;)
+
+ggplot(downloads) +
+  geom_line(aes(x = date, y = cumsum(count))) +
+  ylab(&quot;Downloads&quot;) + xlab(&quot;Date&quot;) + theme_bw() +
+  ggtitle(&quot;DepthProc&quot;, &quot;Download stats&quot;)</code></pre>
+<p><img src="/post/2018-06-11-depthproc-20k_files/figure-html/unnamed-chunk-1-1.png" width="672" /></p>
+<p>There are some jumps on the line. I wondered if they all occurred just after the package release (old users updates to the new versions). Here’s some code to check this.</p>
+<pre class="r"><code>library(rvest)
+library(lubridate)
+library(dplyr)
+path &lt;- &quot;https://cran.r-project.org/src/contrib/Archive/DepthProc/&quot;
+
+versionDate &lt;- html_table(read_html(path))[[1]]
+versionDate &lt;- versionDate[,c(2,3)]
+versionDate &lt;- versionDate %&gt;% filter(grepl(Name, pattern = &quot;DepthProc&quot;)) %&gt;% mutate(Date = ymd(substring(`Last modified`, 1, 10))) %&gt;% select(Date)
+
+versionDate &lt;- bind_rows(versionDate, data_frame(Date = ymd(&quot;2018-06-05&quot;))) # Add current release
+versionDate</code></pre>
+<pre><code>##         Date
+## 1 2014-08-26
+## 2 2014-11-10
+## 3 2014-11-11
+## 4 2016-02-12
+## 5 2014-08-20
+## 6 2017-06-20
+## 7 2017-06-26
+## 8 2018-06-05</code></pre>
+<pre class="r"><code>ggplot() +
+  geom_line(data = downloads, aes(x = date, y = cumsum(count))) +
+  ylab(&quot;Downloads&quot;) + xlab(&quot;Date&quot;) + theme_bw() +
+  ggtitle(&quot;DepthProc&quot;, &quot;Download stats (vertical bars indicates new versions)&quot;) +
+  geom_vline(data = versionDate,
+      aes(xintercept = Date), color = &quot;darkgreen&quot;, linetype = &quot;dashed&quot;)</code></pre>
+<p><img src="/post/2018-06-11-depthproc-20k_files/figure-html/unnamed-chunk-2-1.png" width="672" /></p>
+<p>It seems that the main jump was related to something else. Anyway, it’s good to see that people use your work:)</p>
+<p>If you have any questions about the package please send me an email or post an issue on the package’s GitHub page (<a href="https://github.com/zzawadz/DepthProc/issues" class="uri">https://github.com/zzawadz/DepthProc/issues</a>).</p>
+<div id="useful-links" class="section level3">
+<h3>Useful links:</h3>
+<ul>
+<li><a href="https://www.depthproc.zstat.pl/" class="uri">https://www.depthproc.zstat.pl/</a> - the package website (built with <code>pkgdown</code>).</li>
+<li><a href="https://arxiv.org/abs/1408.4542" class="uri">https://arxiv.org/abs/1408.4542</a> - description of the package's capabilities.</li>
+</ul>
+</div>

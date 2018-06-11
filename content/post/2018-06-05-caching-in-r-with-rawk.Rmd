@@ -1,6 +1,6 @@
 ---
 title: Caching function's result based on file modification time in R.
-date: '2018-05-28'
+date: '2018-06-05'
 tags:
   - R
 ---
