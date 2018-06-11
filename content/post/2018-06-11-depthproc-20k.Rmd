@@ -8,7 +8,6 @@ tags:
 My first package published on CRAN - DepthProc recently hit 20k downloads.
 
 ```{r, cache=TRUE}
-
 library(cranlogs)
 library(ggplot2)
 downloads <-
@@ -31,9 +30,13 @@ path <- "https://cran.r-project.org/src/contrib/Archive/DepthProc/"
 
 versionDate <- html_table(read_html(path))[[1]]
 versionDate <- versionDate[,c(2,3)]
-versionDate <- versionDate %>% filter(grepl(Name, pattern = "DepthProc")) %>% mutate(Date = ymd(substring(`Last modified`, 1, 10))) %>% select(Date)
+versionDate <- versionDate %>% 
+  filter(grepl(Name, pattern = "DepthProc")) %>% 
+  mutate(Date = ymd(substring(`Last modified`, 1, 10))) %>% 
+  select(Date)
 
-versionDate <- bind_rows(versionDate, data_frame(Date = ymd("2018-06-05"))) # Add current release
+versionDate <- bind_rows(versionDate, 
+        data_frame(Date = ymd("2018-06-05"))) # Add current release
 versionDate
 
 ggplot() + 
