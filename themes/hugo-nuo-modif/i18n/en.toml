@@ -1,0 +1,8 @@
+[readingTime]
+other = "{{.Count}} min read"
+
+[readMore]
+other = "Read more"
+
+[tags]
+other = "Tags"

@@ -2,6 +2,16 @@ library(rtweet)
 library(dplyr)
 library(lubridate)
 
+create_token(
+
+  app = "myTweets-zz",
+
+  consumer_key = "JYwW1siGRAZTGrN3Zs9pasuOg",
+
+  consumer_secret = " r7zTWWd230EW5WRIy93J8bSEdNkINyJUsvXyQZ5VE6eoWz2KyV"
+
+) -> twitter_token
+
 makeRNews <- function(startDate, endDate) {
 
   startDate <- ymd_hms(startDate)
@@ -9,8 +19,8 @@ makeRNews <- function(startDate, endDate) {
 
   date <- substring(endDate, 1, 10)
 
-  applyr <- search_tweets("#applyrds", n=1500)
-  applyr <- applyr %>% filter(screen_name == "zzawadz")
+  applyr <- get_timeline("zzawadz", n=1500, token = twitter_token)
+  applyr <- applyr %>% filter(screen_name == "zzawadz", source == "Buffer")
   applyr <- applyr %>% arrange(desc(favorite_count))
   applyr <- applyr %>% filter(created_at <= endDate, startDate < created_at)
 
@@ -22,7 +32,8 @@ makeRNews <- function(startDate, endDate) {
 
 
   imagesNames <- sapply(applyr$media_url, function(img) {
-    imgname <- file.path("static/img/2018-01-16", basename(img))
+    if(is.na(img)) return(NA)
+    imgname <- file.path("static/img/2018-02-28", basename(img))
     download.file(img, destfile = imgname)
     gsub(imgname, pattern = "^static", replacement = "")
   })
@@ -44,7 +55,7 @@ makeRNews <- function(startDate, endDate) {
 ", expandedText, imagesNames)
   code <- paste(code, collapse = "\n")
 
-  date <- "2018-01-31"
+  date <- "2018-02-28"
 
   totalCode <- paste0(
   sprintf("---
@@ -62,12 +73,12 @@ tags:
 
 ### Some interesting Data Science stuff found between %s and %s.
 
-", date, substring(endDate, 1, 10), substring(endDate,1,10), date, date, date),
+", date, substring(endDate, 1, 10), substring(endDate,1,10), substring(startDate, 1, 10), date),
   code, collapse = "\n\n")
 
   cat(totalCode, file = sprintf("content/post/%s-rnews-%s.Rmd", date, date))
 }
 
-endDate <- "2018-01-31 00:00:00"
-startDate <- "2018-01-16 00:00:00"
+endDate <- "2018-02-28 23:59:00"
+startDate <- "2018-02-01 00:00:00"
 makeRNews(startDate, endDate)

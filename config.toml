@@ -2,25 +2,21 @@ baseurl = "https://www.zstat.pl/"
 relativeurls = true
 languageCode = "en-us"
 title = "zstat.pl - blog"
-theme = "hugo-theme-bootstrap4-blog"
+theme = "hugo-nuo-modif"
 googleAnalytics = ""
 ignoreFiles = ["\\.Rmd$", "_files$", "_cache$"]
 
 [permalinks]
     post = "/:year/:month/:day/:slug/"
 
-[[menu.navbar]]
-    name = "About"
-    url = "/about/"
-[[menu.navbar]]
-    name = "Twitter"
-    url = "https://twitter.com/zzawadz"
-[[menu.navbar]]
-    name = "LinkedIn"
-    url = "https://www.linkedin.com/in/zygmunt-zawadzki-81525b92/"
-
 [params]
     description = "Blog about R, Scala, Shiny, Spark, statistics, data science, machine learning and other stuff."
+    avatar = "/img/zstat_logo_final.png"
+
+    email = "zygmunt@zstat.pl"
+    github = "zzawadz"
+    twitter = "zzawadz"
+    linkedin = "zygmunt-zawadzki-81525b92"
 
     # options for highlight.js (version, additional languages, and theme)
     highlightjsVersion = "9.10.0"
@@ -39,3 +35,16 @@ ignoreFiles = ["\\.Rmd$", "_files$", "_cache$"]
 
     # How many posts to show on the sidebar (Default: 5)
     num_recent_posts = 5
+
+[[languages.en.menu.main]]
+  name = "Blog"
+  weight = 10
+  identifier = "blog"
+  url = "/"
+
+[[languages.en.menu.main]]
+  name = "Tags"
+  weight = 20
+  identifier = "tags"
+  url = "/tags/"
+
