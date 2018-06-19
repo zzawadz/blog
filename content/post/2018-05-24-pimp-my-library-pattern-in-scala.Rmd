@@ -6,6 +6,7 @@ slug: pimp-my-library-pattern-in-scala
 categories: []
 tags:
   - scala
+  - programming
 ---
 
 My primary language for data analysis is still R. However, when it comes to the Big Data I prefer Scala because of it is the central language behind Spark, and gives more freedom than the `sparklyr` interface (I sometimes use `sparklyr,` but this is a topic for another post).

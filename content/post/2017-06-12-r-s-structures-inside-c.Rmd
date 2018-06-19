@@ -3,10 +3,11 @@ title: R's structures inside C++
 author: Zygmunt Zawadzki
 date: '2017-06-12'
 slug: r-s-structures-inside-c
-categories:
-  - R
 tags:
+  - C++
+  - R
   - performance
+  - programming
 ---
 
 ```{r setup, include=FALSE}

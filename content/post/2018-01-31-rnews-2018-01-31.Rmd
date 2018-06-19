@@ -3,11 +3,9 @@ title: RNews - 2018-01-31
 author: ~
 date: '2018-01-31'
 slug: news-2018-01-31Rmd
-categories:
-  - R
 tags:
-  - rtips
-  - applyr
+  - R
+  - R news
 ---
 
 

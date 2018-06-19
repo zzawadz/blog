@@ -3,10 +3,10 @@ title: Drag and Drop in Shiny
 author: ~
 date: '2017-11-24'
 slug: drag-and-drop-in-shiny
-categories:
-  - R
 tags:
+  - R
   - shiny
+  - dragulaR
 ---
 
 Shiny application is a great way to deliver the result of statistical analysis, especially when it must be reproducible. I don't know why, but people prefer to use graphic interface, rather than run scripts;)

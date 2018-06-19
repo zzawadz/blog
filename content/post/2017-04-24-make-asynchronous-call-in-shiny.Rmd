@@ -3,9 +3,8 @@ title: Make asynchronous call in shiny.
 author: Zygmunt Zawadzki
 date: '2017-04-24'
 slug: ''
-categories: 
-  - R
 tags:
+  - R
   - shiny
   - future
 ---

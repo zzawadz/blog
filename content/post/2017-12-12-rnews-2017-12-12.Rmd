@@ -3,8 +3,9 @@ title: RNews - 2017-12-12
 author: ~
 date: '2017-12-12'
 slug: rnews-2017-12-12
-categories: []
-tags: []
+tags:
+  - R
+  - R news
 ---
 
 This list is quite small because I hit the history limit on Twitter:( Nevertheless, there are some exciting things - e.g. videos from H2O World 2017.

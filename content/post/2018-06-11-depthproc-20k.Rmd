@@ -3,6 +3,7 @@ title: DepthProc hit 20k downloads.
 date: '2018-06-11'
 tags:
   - R
+  - R Packages
 ---
 
 My first package published on CRAN - DepthProc recently hit 20k downloads.

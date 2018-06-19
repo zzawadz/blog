@@ -3,10 +3,10 @@ title: "The power of Progress Bar"
 date: '2017-05-17'
 author: Zygmunt Zawadzki
 output: html_document
-categories: 
-  - R
 tags:
+  - R
   - performance
+  - programming
 ---
 
 In the last post, I wrote some notes about code optimization using Rcpp and C++. However, I forgot to add one main thought related to this topic:

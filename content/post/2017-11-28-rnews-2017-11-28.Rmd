@@ -3,10 +3,9 @@ title: RNews - 2017-11-27
 author: ~
 date: '2017-11-27'
 slug: rnews-2017-11-27
-categories:
-  - R
 tags:
-  - rtips
+  - R
+  - R news
 ---
 
 Next portion of exciting information from R's world (in fact, not only R's but it's the main thing here).

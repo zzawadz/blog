@@ -3,8 +3,9 @@ title: Dynamic modules in shiny - Part I
 author: ~
 date: '2017-12-22'
 slug: dynamic-modules-in-shiny-part-i
-categories: []
-tags: []
+tags:
+  - R
+  - shiny
 ---
 
 The best way to organize shiny app is to use modules. They are also an excellent choice when you need to replicate some functionality few times. For example, when you want to compare some plots with different parameters, the modules are your way to go. In basic usage, modules require a direct call of `callModule` in a server and a place in UI. However, sometimes you don't know how many instances of a given module are needed. One way to achieve this is to allocate a few placeholders like this:

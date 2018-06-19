@@ -3,8 +3,10 @@ title: Call R from C#
 author: Zygmunt Zawadzki
 date: '2017-12-30'
 slug: call-r-from-c
-categories: []
-tags: []
+tags:
+  - C#
+  - R
+  - programming
 ---
 
 R has various packages to call other languages, like Rccp, rJava or sparklyr. Those tools significantly expand R's capabilities, because the user doesn't need to learn a lot of different stuff. Everything is nicely integrated into R.

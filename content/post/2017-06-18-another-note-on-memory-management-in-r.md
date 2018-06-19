@@ -3,9 +3,8 @@ title: Another note on memory management in R
 author: Zygmunt Zawadzki
 date: '2017-06-18'
 slug: another-note-on-memory-management-in-r
-categories:
-  - R
 tags:
+  - R
   - performance
 ---
 

@@ -3,8 +3,9 @@ title: RNews - 2017-12-05
 author: ~
 date: '2017-12-05'
 slug: rnews-2017-12-05
-categories: []
-tags: []
+tags:
+  - R
+  - R news
 ---
 
 Another pack of news from R's world.

@@ -4,7 +4,8 @@ date: '2018-05-24'
 tags:
   - R
   - NLP
-  - Scala
+  - Machine Learning
+  - R Packages
 ---
 
 I enjoyed work with Facebook's fastText (https://github.com/facebookresearch/fastText) library and its R's wrapper fastrtext (https://github.com/pommedeterresautee/fastrtext). However, I want to spend some more time with StarSpace library (also Facebook's library for NLP). Unfortunately, there's no R package for StarSpace!
