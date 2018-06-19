@@ -1,0 +1,220 @@
+---
+title: Dynamic modules in shiny - Part II
+date: '2018-06-19'
+tags:
+  - R
+  - shiny
+---
+
+
+
+<p>In the <a href="https://www.zstat.pl/2017/12/22/dynamic-modules-in-shiny-part-i/">previous post</a> about shiny modules, I described how to dynamically add new modules, or even select a module type from a few possibilities. The main problem was that the new module is added inside an observer function, so we cannot directly get the returned value of the new modules.</p>
+<p>However, we can solve this problem quite easily using <code>reactiveValues</code>. We just add a parameter to the module’s server function in which we will send the reactive value used to communicate between the main application and the module.</p>
+<p>In the example below, we use a <code>state</code> <code>reactiveValues</code> object to send the message from the module to the main application (this approach can also be used to communicate between modules). Note that the <code>state</code> is initialized as an empty object, and new elements are added inside the modules, but the <code>renderPrint</code> works as expected, it shows the values from all existing modules.</p>
+<pre class="r"><code>library(shiny)
+##### Plot module
+
+modulePlotUI &lt;- function(id) {
+  ns &lt;- NS(id)
+  fluidRow(
+    column(6, sliderInput(ns(&quot;n&quot;), label = &quot;N:&quot;, min = 10, max = 100, value = 50)),
+    column(6, plotOutput(ns(&quot;plot&quot;), height = &quot;200px&quot;))
+  )
+}
+
+modulePlot &lt;- function(input, output, session, state) {
+
+  output$plot &lt;- renderPlot({
+
+    # send all values from the module as a element of the `state` object
+    state[[session$ns(&quot;id&quot;)]] &lt;- list(N = input$n, type = &quot;plot&quot;)
+    plot(rnorm(input$n), rnorm(input$n))
+  })
+
+}
+
+##### Text module
+moduleTextUI &lt;- function(id) {
+  ns &lt;- NS(id)
+  fluidRow(
+    column(6, sliderInput(ns(&quot;n&quot;), label = &quot;N:&quot;, min = 10, max = 20, value = 10)),
+    column(6, verbatimTextOutput(ns(&quot;text&quot;)))
+  )
+}
+
+
+moduleText &lt;- function(input, output, session, state) {
+
+  output$text &lt;- renderPrint({
+    state[[session$ns(&quot;id&quot;)]] &lt;- list(N = input$n, type = &quot;text&quot;) # save state to the state object
+    sample(LETTERS, input$n, replace = TRUE)
+  })
+
+}
+
+ui &lt;- fluidPage(
+  titlePanel(&quot;Dynamic modules&quot;),
+  sidebarLayout(
+    sidebarPanel(
+      selectInput(
+        inputId = &quot;type&quot;,
+        label = &quot;Select module&quot;,
+        choices = c(&quot;plot&quot;, &quot;text&quot;)),
+      actionButton(&quot;Add&quot;, label = &quot;Add module&quot;),
+      verbatimTextOutput(&quot;ModuleText&quot;),
+      verbatimTextOutput(&quot;AllModulesText&quot;)
+    ),
+    mainPanel(
+      div(id = &quot;addPlaceholder&quot;)
+    )
+  )
+)
+
+server &lt;- function(input, output) {
+  state &lt;- reactiveValues()
+  output$AllModulesText &lt;- renderPrint(reactiveValuesToList(state))
+
+  idCounter &lt;- reactiveVal(value = 0)
+  observeEvent(input$Add, {
+    id &lt;- idCounter()
+
+    selected &lt;- if(input$type == &quot;plot&quot;) {
+      list(ui = modulePlotUI, server = modulePlot)
+    } else if(input$type == &quot;text&quot;) {
+      list(ui = moduleTextUI, server = moduleText)
+    }
+
+    insertUI(
+      selector = &quot;#addPlaceholder&quot;,
+      where = &quot;beforeBegin&quot;,
+      ui = selected$ui(paste0(&quot;id&quot;,id)))
+
+    callModule(
+      module = selected$server,
+      id = paste0(&quot;id&quot;,id),
+      state = state)
+    idCounter(id + 1)
+  })
+
+}
+
+shinyApp(ui = ui, server = server)</code></pre>
+<p>And the GIF of the working machinery (note the text output on the left side changes when the value on module’s slider moves).</p>
+<p style="text-align:center">
+<img src='/img/modulev1.gif' width='80%'>
+</p>
+<p>There’s one more thing. It might be easier to reason about the application when you use two <code>reactiveValues</code>. One for keeping the state of each module, and the second for sending specific actions to the other parts of the application. This leads us to the second version of the example app in which there’s one output which shows the content of the last clicked module.</p>
+<pre class="r"><code>library(shiny)
+
+
+##### Plot module
+
+modulePlotUI &lt;- function(id) {
+  ns &lt;- NS(id)
+  fluidRow(
+    column(6,
+           actionButton(ns(&quot;Action&quot;), label = &quot;Show me&quot;),
+           sliderInput(ns(&quot;n&quot;), label = &quot;N:&quot;, min = 10, max = 100, value = 50)),
+    column(6, plotOutput(ns(&quot;plot&quot;), height = &quot;200px&quot;))
+  )
+}
+
+modulePlot &lt;- function(input, output, session, state, action) {
+
+  output$plot &lt;- renderPlot({
+    # send all values from the module as a element of the `state` object
+    state[[session$ns(&quot;id&quot;)]] &lt;- list(N = input$n, type = &quot;plot&quot;)
+    plot(rnorm(input$n), rnorm(input$n))
+  })
+
+  observeEvent(input$Action, {
+    action$action &lt;- state[[session$ns(&quot;id&quot;)]]
+  })
+
+}
+
+##### Text module
+moduleTextUI &lt;- function(id) {
+  ns &lt;- NS(id)
+  fluidRow(
+    column(6,
+           actionButton(ns(&quot;Action&quot;), label = &quot;Show me&quot;),
+           sliderInput(ns(&quot;n&quot;), label = &quot;N:&quot;, min = 10, max = 20, value = 10)),
+    column(6, verbatimTextOutput(ns(&quot;text&quot;)))
+  )
+}
+
+
+moduleText &lt;- function(input, output, session, state, action) {
+
+  output$text &lt;- renderPrint({
+    state[[session$ns(&quot;id&quot;)]] &lt;- list(N = input$n, type = &quot;text&quot;)
+    sample(LETTERS, input$n, replace = TRUE)
+  })
+
+  observeEvent(input$Action, {
+    action$action &lt;- state[[session$ns(&quot;id&quot;)]]
+  })
+
+}
+
+ui &lt;- fluidPage(
+  titlePanel(&quot;Dynamic modules&quot;),
+  sidebarLayout(
+    sidebarPanel(
+      selectInput(
+        inputId = &quot;type&quot;,
+        label = &quot;Select module&quot;,
+        choices = c(&quot;plot&quot;, &quot;text&quot;)),
+      actionButton(&quot;Add&quot;, label = &quot;Add module&quot;),
+      verbatimTextOutput(&quot;ModuleText&quot;),
+      verbatimTextOutput(&quot;AllModulesText&quot;)
+    ),
+    mainPanel(
+      div(id = &quot;addPlaceholder&quot;)
+    )
+  )
+)
+
+server &lt;- function(input, output) {
+  state &lt;- reactiveValues()
+  action &lt;- reactiveValues(action = NULL)
+  output$ModuleText &lt;- renderPrint(action$action)
+  output$AllModulesText &lt;- renderPrint(reactiveValuesToList(state))
+
+  idCounter &lt;- reactiveVal(value = 0)
+  observeEvent(input$Add, {
+    id &lt;- idCounter()
+
+    selected &lt;- if(input$type == &quot;plot&quot;) {
+      list(ui = modulePlotUI, server = modulePlot)
+    } else if(input$type == &quot;text&quot;) {
+      list(ui = moduleTextUI, server = moduleText)
+    }
+
+    insertUI(
+      selector = &quot;#addPlaceholder&quot;,
+      where = &quot;beforeBegin&quot;,
+      ui = selected$ui(paste0(&quot;id&quot;,id)))
+
+    callModule(
+      module = selected$server,
+      id = paste0(&quot;id&quot;,id),
+      state = state,
+      action = action)
+    idCounter(id + 1)
+  })
+
+}
+
+shinyApp(ui = ui, server = server)</code></pre>
+<p>And the GIF:</p>
+<p style="text-align:center">
+<img src='/img/modulev2.gif' width='80%'>
+</p>
+<p>If you have any question related to the article, send me a message on Twitter, LinkedIn, Github (<a href="https://github.com/zzawadz/blog/issues" class="uri">https://github.com/zzawadz/blog/issues</a>) or email.</p>
+<p>The source code for both applications are here:</p>
+<ul>
+<li><a href="https://github.com/zzawadz/blog/blob/master/code/shiny-modules/dynamicModule-v1.R" class="uri">https://github.com/zzawadz/blog/blob/master/code/shiny-modules/dynamicModule-v1.R</a></li>
+<li><a href="https://github.com/zzawadz/blog/blob/master/code/shiny-modules/dynamicModule-v2.R" class="uri">https://github.com/zzawadz/blog/blob/master/code/shiny-modules/dynamicModule-v2.R</a></li>
+</ul>
