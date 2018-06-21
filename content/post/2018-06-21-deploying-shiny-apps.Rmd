@@ -1,0 +1,100 @@
+---
+title: Deploying Shiny Apps
+date: '2018-06-21'
+tags:
+  - R
+  - shiny
+  - shinyproxy
+  - shiny server
+  - Nginx
+  - r administration
+---
+
+Shiny apps are a very convenient way of sharing your work with others, especially with non-technical co-workers. The best way is to deploy your app somewhere on the internet (or intranet), so the user won't need to install R, packages, and other stuff, let alone the need for easy updates. 
+
+There're a few ways to host your applications, and all of them comes with some pros and cons:
+
+## Shinyapps
+
+#### http://www.shinyapps.io/
+
+The most natural solution is to put your app on the shinyapps.io. It's a SaaS environment for all your application, so you don't need to worry about a lot of configuration stuff. However, you need to know that your apps are in the cloud, and sometimes you can't upload your data to the services outside your company. In such situations, it's a non-starter.
+
+Pros:
+- Very easy to deploy.
+- Built-in authentication (in the STANDARD plan).
+- It's the RStudio's product, so by using it, you support the development of all great packages.
+
+Cons:
+- Hosted in the cloud, so can't be used to analyze sensitive data.
+- SaaS - there's monthly fee if you want to scale up. The free plan allows 25 active hours.
+- The free plan permits only five apps.
+
+## Self-hosted shiny server
+
+#### https://www.rstudio.com/products/rstudio/download-server/
+
+When you need an on-premise solution, you can use Shiny Server. There's an opensource version, which is quite limited in the functionality (you can compare it with shinyapps.io and the pro version here https://www.rstudio.com/products/shiny/shiny-server/). It does not support the SSL and authentication by default, so it might not be quite dangerous to use it in the open internet. On the intranet, it might be okay.
+
+The pro version has a lot of advantages, but you need to pay a yearly fee based on the number of users starting from 10k$ (there are 45 days for evaluation). It might be quite expensive for smaller companies:(
+
+Shiny Server Open Source pros:
+- Easy to install and manage.
+- Not scalable. In the OpenSource version, every app runs on the only one process.
+
+Cons:
+- You need to add additional layers for SSL and authentication, for example by configuring Nginx. There're some tutorials on that somewhere on the internet. However, I think that when it comes to the security, it's better to consult a specialist, especially in the age of GDPR.
+
+## Shinyproxy
+
+#### https://www.shinyproxy.io/
+
+It is my favorite way to host the apps. Shinyproxy is an opensource solution based on the Docker containers which support authentication using LDAP, and scalability. It's also a dead easy to install (if you have a Java installed), you only need to download a single JAR file. It's my first choice when I need to create a hosting platform for Shiny.
+
+Pros:
+
+- Scalable. Each user gets his container, so you don't need to worry about the long-running task inside apps which can block other users.
+- It supports authentication.
+- Free.
+
+Cons:
+
+- Running container requires much more resources than running single R session, so the user sessions are more expensive in term of the CPU/RAM/Disk usage.
+- It's based on the Docker, so it must be present on your system (not all admins like docker;)).
+- You need to build a docker image for every application, which can take time. It might be good to use some CI tools to do the job (but it requires even more configuration).
+
+For more information please visit the www.shinyproxy.io. I strongly recommend this solution.
+
+## Start an app in an R process.
+
+Not all shiny's users know that there's no need to use any of the tools presented above to allow users to connect to your application.
+
+The shiny's `runApp` function has two special arguments: `host` and `port`. You can run a shiny app which will be accessible for other users just by using:
+`runApp(host = "your.server.ip.xx", port = port)`, for example:
+
+```r
+runApp(host = "1.1.1.1", port = 5678)
+```
+then the user will be able to connect to your app by typing http://1.1.1.1:5678 in the web browser.
+As long as the R process is still running, everything works as expected.
+
+Though you need to remember that, there's no authentication or any security (but you can still use Nginx to add additional layer). I use this approach only in the very early stage of the development and on the intranet, so there's no risk of exposing something important.
+
+If you have more time, this approach can be quite scalable, because you can run a few R processes on multiple servers and use some load-balancer (Nginx for example:)) to split users between them.
+
+Pros:
+
+- Flexible.
+- Deployment takes seconds.
+- There's no overhead of any additional tools used to manage apps.
+
+Cons:
+
+- Requires a lot of manual configuration if you need additional functionality like auto-restarts, authentication, etc.
+
+
+## Conclusion.
+
+Currently, I try to limit my exposure to the Shiny, because I consider myself more Data Scientist than a Web Developer. But, when I'm forced to present my findings in the form of an app, I usually start with the last solution and directly expose R process on a specific port. Only if the app must be more persistent, I set up Shinyproxy which can work months without any additional intervention.
+
+I hope you will find this article useful.
