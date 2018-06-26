@@ -1,0 +1,104 @@
+---
+title: X-ray your data
+author: Zygmunt Zawadzki
+date: '2018-06-23'
+slug: x-ray-your-data
+tags:
+  - R
+  - Data cleansing
+---
+
+
+
+<p>When I was checking my notes, I found a piece of information about <code>xray</code> package. It is pretty simple, only exports three functions, but all of them are quite useful.</p>
+<p>Search for the most common problems. The first function <code>anomalies</code>, reports some statistics regarding the most basic data problems:</p>
+<ul>
+<li>NA.</li>
+<li>Zeroes.</li>
+<li>A categorical variable with only one level.</li>
+<li>Blank strings.</li>
+</ul>
+<p>I usually test the data for the presence of NAs using some simple code like <code>sapply(data, function(x) mean(is.na(x)))</code>, but I’ll happily switch to xray, because with one line it performs more tests, and the output is far more nicely formatted.</p>
+<p>See the example below:</p>
+<pre class="r"><code># install.packages(&quot;xray&quot;)
+library(xray)
+
+anom &lt;- anomalies(iris)
+anom</code></pre>
+<pre><code>## $variables
+##       Variable   q qNA pNA qZero pZero qBlank pBlank qInf pInf qDistinct
+## 1      Species 150   0   -     0     -      0      -    0    -         3
+## 2  Petal.Width 150   0   -     0     -      0      -    0    -        22
+## 3  Sepal.Width 150   0   -     0     -      0      -    0    -        23
+## 4 Sepal.Length 150   0   -     0     -      0      -    0    -        35
+## 5 Petal.Length 150   0   -     0     -      0      -    0    -        43
+##      type anomalous_percent
+## 1  Factor                 -
+## 2 Numeric                 -
+## 3 Numeric                 -
+## 4 Numeric                 -
+## 5 Numeric                 -
+## 
+## $problem_variables
+##  [1] Variable          q                 qNA              
+##  [4] pNA               qZero             pZero            
+##  [7] qBlank            pBlank            qInf             
+## [10] pInf              qDistinct         type             
+## [13] anomalous_percent problems         
+## &lt;0 rows&gt; (or 0-length row.names)</code></pre>
+<pre class="r"><code>iris2 &lt;- iris
+
+iris2$Petal.Length[sample.int(150, 80)] &lt;- 0
+iris2$Sepal.Width[sample.int(150, 80)] &lt;- ifelse(rbinom(80, size = 1, prob = 0.3) == 0, Inf, -Inf)
+iris2$SpeciesChar &lt;- ifelse(rbinom(150, size = 1, prob = 0.9) == 0, as.character(iris2$Species), &quot;&quot;)
+iris2$Species[sample.int(150, 20)] &lt;- NA
+
+anom2 &lt;- xray::anomalies(iris2)</code></pre>
+<pre><code>## Warning in xray::anomalies(iris2): Found 1 possible problematic variables: 
+## SpeciesChar</code></pre>
+<pre class="r"><code>anom2</code></pre>
+<pre><code>## $variables
+##       Variable   q qNA    pNA qZero  pZero qBlank pBlank qInf   pInf
+## 1  SpeciesChar 150   0      -     0      -    135    90%    0      -
+## 2  Sepal.Width 150   0      -     0      -      0      -   80 53.33%
+## 3 Petal.Length 150   0      -    80 53.33%      0      -    0      -
+## 4      Species 150  20 13.33%     0      -      0      -    0      -
+## 5  Petal.Width 150   0      -     0      -      0      -    0      -
+## 6 Sepal.Length 150   0      -     0      -      0      -    0      -
+##   qDistinct      type anomalous_percent
+## 1         4 Character               90%
+## 2        20   Numeric            53.33%
+## 3        34   Numeric            53.33%
+## 4         4    Factor            13.33%
+## 5        22   Numeric                 -
+## 6        35   Numeric                 -
+## 
+## $problem_variables
+##      Variable   q qNA pNA qZero pZero qBlank pBlank qInf pInf qDistinct
+## 1 SpeciesChar 150   0   -     0     -    135    90%    0    -         4
+##        type anomalous_percent                              problems
+## 1 Character               90% Anomalies present in 90% of the rows.</code></pre>
+<p>The second function <code>distributions</code> plots distributions for each variable, and returns a summary table. It’s also a quite common step, so I’m glad that it’s automated in the package, and the output is also beautifully formatted.</p>
+<p>The next example:</p>
+<pre class="r"><code>distributions(iris2) # as simple as this</code></pre>
+<pre><code>## ===========================================================================</code></pre>
+<pre><code>## Warning: Removed 80 rows containing non-finite values (stat_bin).</code></pre>
+<p><img src="/post/2018-06-23-x-ray-your-data_files/figure-html/dist-1.png" width="672" /><img src="/post/2018-06-23-x-ray-your-data_files/figure-html/dist-2.png" width="672" /></p>
+<pre><code>##       Variable  p_1 p_10 p_25 p_50 p_75 p_90  p_99
+## 1  Sepal.Width -Inf -Inf  2.8  3.4  Inf  Inf   Inf
+## 2 Petal.Length    0    0    0    0    4 5.41 6.651
+## 3  Petal.Width  0.1  0.2  0.3  1.3  1.8  2.2   2.5
+## 4 Sepal.Length  4.4  4.8  5.1  5.8  6.4  6.9   7.7</code></pre>
+<p>The last function is used to check the data over time. The example usage can be found in the <a href="https://github.com/sicarul/xray/" class="uri">https://github.com/sicarul/xray/</a>, so check the package’s website.</p>
+<div id="summary." class="section level3">
+<h3>Summary.</h3>
+<p>This package inspired me to the further research, for other tools to validate and prepare your data to the actual analysis, and I found a real pearl - the <code>vtreat</code> package. It seems to be a real swiss-army knife for preparing data for predictive modeling. But it’s a topic for another post;)</p>
+</div>
+<div id="links" class="section level3">
+<h3>Links:</h3>
+<ul>
+<li><a href="https://blog.datascienceheroes.com/x-ray-vision-on-your-datasets/" class="uri">https://blog.datascienceheroes.com/x-ray-vision-on-your-datasets/</a> - short description of the package.</li>
+<li><a href="https://github.com/sicarul/xray/" class="uri">https://github.com/sicarul/xray/</a> - xray’s GitHub webpage.</li>
+<li><a href="https://winvector.github.io/vtreat/" class="uri">https://winvector.github.io/vtreat/</a> - swiss-army knife for preparing your data for modeling.</li>
+</ul>
+</div>

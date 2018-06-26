@@ -1,0 +1,62 @@
+---
+title: X-ray your data
+author: Zygmunt Zawadzki
+date: '2018-06-23'
+slug: x-ray-your-data
+tags:
+  - R
+  - Data cleansing
+---
+
+When I was checking my notes, I found a piece of information about `xray` package. It is pretty simple, only exports three functions, but all of them are quite useful.
+
+Search for the most common problems.
+The first function `anomalies`, reports some statistics regarding the most basic data problems:
+
+- NA.
+- Zeroes.
+- A categorical variable with only one level.
+- Blank strings.
+
+
+I usually test the data for the presence of NAs using some simple code like
+`sapply(data, function(x) mean(is.na(x)))`, but I'll happily switch to xray, because with one line it performs more tests, and the output is far more nicely formatted.
+
+See the example below:
+
+```{r}
+# install.packages("xray")
+library(xray)
+
+anom <- anomalies(iris)
+anom
+
+iris2 <- iris
+
+iris2$Petal.Length[sample.int(150, 80)] <- 0
+iris2$Sepal.Width[sample.int(150, 80)] <- ifelse(rbinom(80, size = 1, prob = 0.3) == 0, Inf, -Inf)
+iris2$SpeciesChar <- ifelse(rbinom(150, size = 1, prob = 0.9) == 0, as.character(iris2$Species), "")
+iris2$Species[sample.int(150, 20)] <- NA
+
+anom2 <- xray::anomalies(iris2)
+anom2
+```
+
+The second function `distributions` plots distributions for each variable, and returns a summary table. It's also a quite common step, so I'm glad that it's automated in the package, and the output is also beautifully formatted.
+
+The next example:
+
+```{r dist}
+distributions(iris2) # as simple as this
+```
+
+The last function is used to check the data over time. The example usage can be found in the https://github.com/sicarul/xray/, so check the package's website.
+
+### Summary.
+
+This package inspired me to the further research, for other tools to validate and prepare your data to the actual analysis, and I found a real pearl - the `vtreat` package. It seems to be a real swiss-army knife for preparing data for predictive modeling. But it's a topic for another post;)
+
+### Links:
+- https://blog.datascienceheroes.com/x-ray-vision-on-your-datasets/ - short description of the package.
+- https://github.com/sicarul/xray/ - xray's GitHub webpage.
+- https://winvector.github.io/vtreat/ - swiss-army knife for preparing your data for modeling.
