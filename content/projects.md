@@ -10,7 +10,11 @@ weight: 50
 <style type="text/css">
 
 img {
-display: inline;
+  display: inline;
+}
+
+.post-content img {
+  display: inline;
 }
 
 </style>
