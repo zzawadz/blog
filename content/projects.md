@@ -7,6 +7,14 @@ weight: 50
 ---
 
 
+<style type="text/css">
+
+img {
+display: inline;
+}
+
+</style>
+
 # R packages
 
 ## CRAN
