@@ -1,0 +1,101 @@
+---
+title: Lua
+author: Zygmunt Zawadzki
+date: '2018-07-03'
+slug: lua
+tags:
+  - lua
+  - programming
+---
+
+In one of my projects, I had to choose which language I would use to write some small module - C, C++ or Lua. I didn't want to use C, because the module required a lot of string handling. Another option was C++, but some other parts of the system were written in Lua, so I thought it would be much easier to integrate everything without switching languages, and I had heard some good things about Lua, so in the end, I decided to give it a shot. And this was a right decision.
+
+Lua is a minimal language. In fact, there's only one primary data structure - an associative array. It's something similar to Python's dictionary, but you can build nearly everything based on it, e.g., check the https://en.wikipedia.org/wiki/Lua_(programming_language) to see how to implement namespaces or objects using Lua's arrays.
+
+I found only one confusing thing in that language. When you want to iterate over an array using `for` loop, you need to use an iterator. So far so good. `ipairs` works only if the keys are numeric starting from 1, and are continuous (there're no spaces between them). See the example below:
+
+```lua
+arr = {}
+for i=1,5 do 
+   arr[i] = i*i
+end
+for _, val in ipairs(arr) do print(val) end
+-- 1
+-- 4
+-- 9
+-- 16
+-- 25
+
+print("Arr size", #arr)
+-- Arr size	5
+
+arr[7] = 49
+arr['error'] = 1000
+print("Arr size", #arr)
+-- Arr size	5  <--- note that the array size is the same, despite we just added two elements 
+
+print(arr['error']) -- 'error' key exists
+-- 1000
+
+for _, val in ipairs(arr) do print(val) end
+-- 1
+-- 4
+-- 9
+-- 16
+-- 25   <-- the last element is still 25, arr[7], and arr['error'] are omited
+
+arr[6] = 36 -- fill the space between 5 and 7
+print("Arr size", #arr)
+-- Arr size	7   <-- the size is now 7 because the numeric indexes are now continuous
+
+for _, val in ipairs(arr) do print(val) end
+-- 1
+-- 4
+-- 9
+-- 16
+-- 25
+-- 36
+-- 49   <-- arr[7] is present!
+
+-- print with keys
+for i,val in ipairs(arr) do print(i, val) end
+-- 1	1
+-- 2	4
+-- 3	9
+-- 4	16
+-- 5	25
+-- 6	36
+-- 7	49
+```
+
+If you need to iterate over all elements in the table you need to use `pairs` iterator. However, the order of elements is not guaranteed, which makes sense because the array is not a vector but something more like a map. See the example:
+
+```lua
+-- create an array with string keys
+arrString = {}
+for i=1,5 do 
+    arrString["tmp" .. i] = i*i
+end
+
+for i,val in ipairs(arrString) do print(i, val) end -- nothing happens
+
+for i,val in pairs(arrString) do print(i, val) end
+-- tmp1	1
+-- tmp3	9
+-- tmp4	16  <---
+-- tmp2	4   <---
+-- tmp5	25
+-- note that the result is not in the order
+```
+
+### Execution speed
+My last concern was a performance because this module had to be quite fast. I only hoped that Lua would be fast enough, otherwise I would be forced to rewrite everything in C++. I still don't really understand why, but the final code, even without any hand optimizations, is blazing fast, even before using JIT (there's luaJIT - http://luajit.org/) it was fast enough.
+
+### Summary
+
+I'm glad that I tried Lua, because it's tiny, but pleasant and compelling language, and I can highly recommend it to others.
+
+Some resources:
+
+- http://luajit.org/ - Just-In-Time Compiler for Lua. It gives a real boost.
+- https://www.lua.org/manual/5.3/ - reference manual. You can read it in less than a day, and be productive from the first minute of writing Lua code.

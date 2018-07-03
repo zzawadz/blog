@@ -1,0 +1,95 @@
+---
+title: Lua
+author: Zygmunt Zawadzki
+date: '2018-07-03'
+slug: lua
+tags:
+  - lua
+  - programming
+---
+
+
+
+<p>In one of my projects, I had to choose which language I would use to write some small module - C, C++ or Lua. I didn’t want to use C, because the module required a lot of string handling. Another option was C++, but some other parts of the system were written in Lua, so I thought it would be much easier to integrate everything without switching languages, and I had heard some good things about Lua, so in the end, I decided to give it a shot. And this was a right decision.</p>
+<p>Lua is a minimal language. In fact, there’s only one primary data structure - an associative array. It’s something similar to Python’s dictionary, but you can build nearly everything based on it, e.g., check the <a href="https://en.wikipedia.org/wiki/Lua_(programming_language)" class="uri">https://en.wikipedia.org/wiki/Lua_(programming_language)</a> to see how to implement namespaces or objects using Lua’s arrays.</p>
+<p>I found only one confusing thing in that language. When you want to iterate over an array using <code>for</code> loop, you need to use an iterator. So far so good. <code>ipairs</code> works only if the keys are numeric starting from 1, and are continuous (there’re no spaces between them). See the example below:</p>
+<pre class="lua"><code>arr = {}
+for i=1,5 do 
+   arr[i] = i*i
+end
+for _, val in ipairs(arr) do print(val) end
+-- 1
+-- 4
+-- 9
+-- 16
+-- 25
+
+print(&quot;Arr size&quot;, #arr)
+-- Arr size 5
+
+arr[7] = 49
+arr[&#39;error&#39;] = 1000
+print(&quot;Arr size&quot;, #arr)
+-- Arr size 5  &lt;--- note that the array size is the same, despite we just added two elements 
+
+print(arr[&#39;error&#39;]) -- &#39;error&#39; key exists
+-- 1000
+
+for _, val in ipairs(arr) do print(val) end
+-- 1
+-- 4
+-- 9
+-- 16
+-- 25   &lt;-- the last element is still 25, arr[7], and arr[&#39;error&#39;] are omited
+
+arr[6] = 36 -- fill the space between 5 and 7
+print(&quot;Arr size&quot;, #arr)
+-- Arr size 7   &lt;-- the size is now 7 because the numeric indexes are now continuous
+
+for _, val in ipairs(arr) do print(val) end
+-- 1
+-- 4
+-- 9
+-- 16
+-- 25
+-- 36
+-- 49   &lt;-- arr[7] is present!
+
+-- print with keys
+for i,val in ipairs(arr) do print(i, val) end
+-- 1    1
+-- 2    4
+-- 3    9
+-- 4    16
+-- 5    25
+-- 6    36
+-- 7    49</code></pre>
+<p>If you need to iterate over all elements in the table you need to use <code>pairs</code> iterator. However, the order of elements is not guaranteed, which makes sense because the array is not a vector but something more like a map. See the example:</p>
+<pre class="lua"><code>-- create an array with string keys
+arrString = {}
+for i=1,5 do 
+    arrString[&quot;tmp&quot; .. i] = i*i
+end
+
+for i,val in ipairs(arrString) do print(i, val) end -- nothing happens
+
+for i,val in pairs(arrString) do print(i, val) end
+-- tmp1 1
+-- tmp3 9
+-- tmp4 16  &lt;---
+-- tmp2 4   &lt;---
+-- tmp5 25
+-- note that the result is not in the order</code></pre>
+<div id="execution-speed" class="section level3">
+<h3>Execution speed</h3>
+<p>My last concern was a performance because this module had to be quite fast. I only hoped that Lua would be fast enough, otherwise I would be forced to rewrite everything in C++. I still don’t really understand why, but the final code, even without any hand optimizations, is blazing fast, even before using JIT (there’s luaJIT - <a href="http://luajit.org/" class="uri">http://luajit.org/</a>) it was fast enough.</p>
+</div>
+<div id="summary" class="section level3">
+<h3>Summary</h3>
+<p>I’m glad that I tried Lua, because it’s tiny, but pleasant and compelling language, and I can highly recommend it to others.</p>
+<p>Some resources:</p>
+<ul>
+<li><a href="http://luajit.org/" class="uri">http://luajit.org/</a> - Just-In-Time Compiler for Lua. It gives a real boost.</li>
+<li><a href="https://www.lua.org/manual/5.3/" class="uri">https://www.lua.org/manual/5.3/</a> - reference manual. You can read it in less than a day, and be productive from the first minute of writing Lua code.</li>
+</ul>
+</div>
