@@ -1,0 +1,85 @@
+---
+title: Calculate the font size for the R's flextable package.
+author: Zygmunt Zawadzki
+date: '2018-07-07'
+slug: calculate-the-font-size-for-the-r-s-flextable-package
+tags: 
+  - rpkg-officer
+  - rpkg-flextable
+  - r-reports
+  - powerpoint
+---
+
+The flextable table is an excellent package for creating beautiful tables, especially if you want to export them to the pptx file.  However, it might be a bit problematic to set the proper font size for the given size of the table. 
+
+E.g., I have a table with five rows (+ 1 header row), and I want to create a table which height is 2 inches. What's the best font size for this setting?
+
+The answer is ~17.
+
+Another question: the same number of rows but the height must be 5 inches.
+In this case, ~44 works pretty well.
+
+After a few experiments, I found out that the following function works pretty well:
+
+```{r}
+calcFontSize <- function(data, height) {
+  nrows <- nrow(data) + 1 # add header
+  const <- 0.01862963
+  c(fs = floor(height / nrows / const), height = height / nrows)
+}
+```
+
+Example:
+
+```{r}
+library(officer)
+library(flextable)
+library(magrittr)
+
+calcFontSize <- function(data, height) {
+  nrows <- nrow(data) + 1 # add header
+  const <- 0.01862963
+  c(fs = floor(height / nrows / const), height = height / nrows)
+}
+
+iris5 <- tail(iris, 5)[,c(1,5)]
+sizes <- calcFontSize(data = iris5, height = 4)
+flTable <- flextable(iris5, cwidth = 3, cheight = sizes["height"])
+flTable <- fontsize(flTable, size = sizes["fs"], part = "all")
+flTable
+
+iris10 <- tail(iris, 10)[,c(1,5)]
+sizes10 <- calcFontSize(data = iris10, height = 5)
+flTable10 <- flextable(iris10, cwidth = 3, cheight = sizes10["height"])
+flTable10 <- fontsize(flTable10, size = sizes10["fs"], part = "all")
+flTable10
+```
+
+```{r, eval=FALSE}
+# create pptx file
+doc <- read_pptx()
+doc <- add_slide(doc, layout = "Blank", master = "Office Theme")
+doc <- doc %>% ph_with_flextable_at(flTable, left = 1, top = 1.5)
+doc <- add_slide(doc, layout = "Blank", master = "Office Theme")
+doc <- doc %>% ph_with_flextable_at(flTable10, left = 1, top = 1.5)
+print(doc, "flextable-test.pptx")
+```
+
+## `autofit`
+
+Why not just use an `autofit` function from the `flextable`? Because it solves the problem when you have a specified font size, and then it allows you to fit the all others sizes (width and height of each cell). In general, the `autofit` is better suited for all other use cases, except adjusting the font size for a simple table with the fixed height.
+
+Note: there's no match between my `calcFontSize` and `autofit` results. For some tables using `autofit` on a table with font and cell sizes calculated by `calcFontSize` might result in a larger table (e.g., 5.5 inches rather than targeted 5), and sometimes the final table is smaller (e.g., 3.9 inches rather than 4). After all, you can use my function to get the font size, and the cell height, and use `dim_pretty` to get the desired width sizes for all columns.
+
+```{r}
+iris10 <- tail(iris, 10)[,c(1,5)]
+sizes10 <- calcFontSize(data = iris10, height = 5)
+flTable10 <- flextable(iris10, cwidth = 3, cheight = sizes10["height"])
+flTable10 <- fontsize(flTable10, size = sizes10["fs"], part = "all")
+width(flTable10, width = dim_pretty(flTable10)$widths)
+```
+
+### More resources
+
+- https://davidgohel.github.io/officer/ - create `docx` and `pptx` documents from R.
+- https://davidgohel.github.io/flextable/ - make tables for `Markdown` and Office documents.
