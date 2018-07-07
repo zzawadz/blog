@@ -3,7 +3,7 @@ title: Deploying Shiny Apps
 date: '2018-06-21'
 tags:
   - R
-  - shiny
+  - rpkg-shiny
   - shinyproxy
   - shiny server
   - Nginx

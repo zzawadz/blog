@@ -12,7 +12,7 @@ tags:
   - pytorch
   - nlp
   - word2vec
-  - word embedding
+  - word embeddings
 ---
 
 Here is my short list of materials related to Deep Learning and NLP that I found useful during my exploration of this topics. I don't think that this list is exhaustive, but maybe you will find something useful;)

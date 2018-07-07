@@ -5,8 +5,8 @@ date: '2017-04-24'
 slug: ''
 tags:
   - R
-  - shiny
-  - future
+  - rpkg-shiny
+  - rpkg-future
 ---
 
 Sometimes you are creating shiny application, and you need to allow the user to perform a long computation (e.g. some model fitting). However, time-demanding calculations are quite problematic, because the whole session needs to wait until it finishes, blocking any other work in different part of the system. 

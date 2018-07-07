@@ -7,6 +7,7 @@ tags:
   - csharp
   - R
   - programming
+  - r administration
 ---
 
 R has various packages to call other languages, like Rccp, rJava or sparklyr. Those tools significantly expand R's capabilities, because the user doesn't need to learn a lot of different stuff. Everything is nicely integrated into R.

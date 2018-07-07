@@ -3,7 +3,7 @@ title: Dynamic modules in shiny - Part II
 date: '2018-06-19'
 tags:
   - R
-  - shiny
+  - rpkg-shiny
 ---
 
 In the [previous post](https://www.zstat.pl/2017/12/22/dynamic-modules-in-shiny-part-i/) about shiny modules, I described how to dynamically add new modules, or even select a module type from a few possibilities. The main problem was that the new module is added inside an observer function, so we cannot directly get the returned value of the new modules.
