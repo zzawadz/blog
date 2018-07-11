@@ -1,0 +1,97 @@
+---
+title: Create pptx in R using officer package
+author: Zygmunt Zawadzki
+date: '2018-07-12'
+slug: create-pptx-in-r-using-officer-package
+tags: 
+  - rpkg-officer
+  - r-reports
+  - powerpoint
+---
+
+When you need to create a pptx file in R, the best way is to use an `officer` package. `officer` is quite easy to use and the documentation is quite extensive so that I won't describe the basics (https://davidgohel.github.io/officer/articles/powerpoint.html - link to the `officer`'s docs). However, I always have some problems with specifying the proper parameters for the `ph_with_*` functions, especially the `type` and `index` parameters. Of course one can use the `ph_with_*_at` versions, but it requires to manually adjust all the coordinates, which might be even more problematic. To make my life easier, I created a function which creates a template file with all possible slides' layouts and fills all the containers in each layout with some text containing the information needed for `ph_with_*`. See the code below:
+
+```{r, message=FALSE}
+library(officer)
+library(dplyr)
+library(stringr)
+
+
+
+pptx_description <- function(doc) {
+  
+  add_slide_with_description <- function(layout, master, doc, props) {
+  
+    tmpProps <- props %>% filter(name == layout, master_name == master)
+    tmpProps <- tmpProps %>% 
+      select(master_name, type) %>% 
+      group_by(master_name, type) %>% mutate(idx = row_number())
+    
+    doc <- doc %>% add_slide(layout = layout, master = master)
+    
+    for(i in seq_len(nrow(tmpProps))) {
+      tt <- tmpProps[i,]$type
+      idx <- tmpProps[i,]$idx
+      master_name <- tmpProps[i,]$master_name
+      txt <- str_interp("'${master_name}' '${layout}' type = '${tt}', index = ${idx}")
+      try({ doc <- doc %>%  ph_with_text(txt, index = idx, type = tt) }, silent = TRUE)
+    }
+    doc
+
+  }
+  
+  props <- layout_properties(doc)
+  allLayouts <- props %>% select(master_name, name) %>% distinct()
+  
+  for(i in seq_len(nrow(allLayouts))) {
+    doc <- add_slide_with_description(
+      layout = allLayouts$name[[i]], 
+      master = allLayouts$master_name[[i]],
+      doc = doc, props = props
+    )
+  }
+  doc
+}
+
+```
+
+### Default template (`read_pptx()`):
+
+To test the function I passed the default file created using empty call of `read_pptx()`:
+
+```{r, results='hide'}
+
+doc <- read_pptx()
+print(pptx_description(doc), "../../static/other/test-all-basic.pptx")
+```
+
+The output file can be found here: https://github.com/zzawadz/blog/raw/master/static/other/test-all-basic.pptx.
+
+Some screenshots:
+
+<p style='text-align:center'><img src='/img/2018-07-11/default1.png' width='80%'></p>
+
+<p style='text-align:center'><img src='/img/2018-07-11/default2.png' width='80%'></p>
+
+### Custom template:
+
+For custom styles, you need to load a file from disk (remember not to overwrite the source file with the output file!):
+
+```{r, results='hide'}
+doc <- read_pptx("../../static/other/Presentation.pptx")
+doc <- doc %>% remove_slide() # remove the existing slides
+print(pptx_description(doc), "../../static/other/test-all-custom-theme.pptx")
+```
+
+The input file containing the 'Madison' style can be download from https://github.com/zzawadz/blog/raw/master/static/other/Presentation.pptx and the result from https://github.com/zzawadz/blog/raw/master/static/other/test-all-custom-theme.pptx.
+
+Some screenshots:
+
+<p style='text-align:center'><img src='/img/2018-07-11/madison1.jpg' width='80%'></p>
+
+<p style='text-align:center'><img src='/img/2018-07-11/madison2.jpg' width='80%'></p>
+
+## Summary
+
+I hope you'll find this useful. For more information about creating reports with R check the `r-reports` tag: https://www.zstat.pl/tags/r-reports/.
+

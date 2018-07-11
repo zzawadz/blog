@@ -1,0 +1,87 @@
+---
+title: Create pptx in R using officer package
+author: Zygmunt Zawadzki
+date: '2018-07-12'
+slug: create-pptx-in-r-using-officer-package
+tags: 
+  - rpkg-officer
+  - r-reports
+  - powerpoint
+---
+
+
+
+<p>When you need to create a pptx file in R, the best way is to use an <code>officer</code> package. <code>officer</code> is quite easy to use and the documentation is quite extensive so that I won’t describe the basics (<a href="https://davidgohel.github.io/officer/articles/powerpoint.html" class="uri">https://davidgohel.github.io/officer/articles/powerpoint.html</a> - link to the <code>officer</code>‘s docs). However, I always have some problems with specifying the proper parameters for the <code>ph_with_*</code> functions, especially the <code>type</code> and <code>index</code> parameters. Of course one can use the <code>ph_with_*_at</code> versions, but it requires to manually adjust all the coordinates, which might be even more problematic. To make my life easier, I created a function which creates a template file with all possible slides’ layouts and fills all the containers in each layout with some text containing the information needed for <code>ph_with_*</code>. See the code below:</p>
+<pre class="r"><code>library(officer)
+library(dplyr)
+library(stringr)
+
+
+
+pptx_description &lt;- function(doc) {
+  
+  add_slide_with_description &lt;- function(layout, master, doc, props) {
+  
+    tmpProps &lt;- props %&gt;% filter(name == layout, master_name == master)
+    tmpProps &lt;- tmpProps %&gt;% 
+      select(master_name, type) %&gt;% 
+      group_by(master_name, type) %&gt;% mutate(idx = row_number())
+    
+    doc &lt;- doc %&gt;% add_slide(layout = layout, master = master)
+    
+    for(i in seq_len(nrow(tmpProps))) {
+      tt &lt;- tmpProps[i,]$type
+      idx &lt;- tmpProps[i,]$idx
+      master_name &lt;- tmpProps[i,]$master_name
+      txt &lt;- str_interp(&quot;&#39;${master_name}&#39; &#39;${layout}&#39; type = &#39;${tt}&#39;, index = ${idx}&quot;)
+      try({ doc &lt;- doc %&gt;%  ph_with_text(txt, index = idx, type = tt) }, silent = TRUE)
+    }
+    doc
+
+  }
+  
+  props &lt;- layout_properties(doc)
+  allLayouts &lt;- props %&gt;% select(master_name, name) %&gt;% distinct()
+  
+  for(i in seq_len(nrow(allLayouts))) {
+    doc &lt;- add_slide_with_description(
+      layout = allLayouts$name[[i]], 
+      master = allLayouts$master_name[[i]],
+      doc = doc, props = props
+    )
+  }
+  doc
+}</code></pre>
+<div id="default-template-read_pptx" class="section level3">
+<h3>Default template (<code>read_pptx()</code>):</h3>
+<p>To test the function I passed the default file created using empty call of <code>read_pptx()</code>:</p>
+<pre class="r"><code>doc &lt;- read_pptx()
+print(pptx_description(doc), &quot;../../static/other/test-all-basic.pptx&quot;)</code></pre>
+<p>The output file can be found here: <a href="https://github.com/zzawadz/blog/raw/master/static/other/test-all-basic.pptx" class="uri">https://github.com/zzawadz/blog/raw/master/static/other/test-all-basic.pptx</a>.</p>
+<p>Some screenshots:</p>
+<p style="text-align:center">
+<img src='/img/2018-07-11/default1.png' width='80%'>
+</p>
+<p style="text-align:center">
+<img src='/img/2018-07-11/default2.png' width='80%'>
+</p>
+</div>
+<div id="custom-template" class="section level3">
+<h3>Custom template:</h3>
+<p>For custom styles, you need to load a file from disk (remember not to overwrite the source file with the output file!):</p>
+<pre class="r"><code>doc &lt;- read_pptx(&quot;../../static/other/Presentation.pptx&quot;)
+doc &lt;- doc %&gt;% remove_slide() # remove the existing slides
+print(pptx_description(doc), &quot;../../static/other/test-all-custom-theme.pptx&quot;)</code></pre>
+<p>The input file containing the ‘Madison’ style can be download from <a href="https://github.com/zzawadz/blog/raw/master/static/other/Presentation.pptx" class="uri">https://github.com/zzawadz/blog/raw/master/static/other/Presentation.pptx</a> and the result from <a href="https://github.com/zzawadz/blog/raw/master/static/other/test-all-custom-theme.pptx" class="uri">https://github.com/zzawadz/blog/raw/master/static/other/test-all-custom-theme.pptx</a>.</p>
+<p>Some screenshots:</p>
+<p style="text-align:center">
+<img src='/img/2018-07-11/madison1.jpg' width='80%'>
+</p>
+<p style="text-align:center">
+<img src='/img/2018-07-11/madison2.jpg' width='80%'>
+</p>
+</div>
+<div id="summary" class="section level2">
+<h2>Summary</h2>
+<p>I hope you’ll find this useful. For more information about creating reports with R check the <code>r-reports</code> tag: <a href="https://www.zstat.pl/tags/r-reports/" class="uri">https://www.zstat.pl/tags/r-reports/</a>.</p>
+</div>
