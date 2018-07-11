@@ -1,0 +1,96 @@
+---
+title: Type-S Errors.
+author: Zygmunt Zawadzki
+date: '2018-07-11'
+slug: type-s-errors
+tags: 
+  - statistics
+  - interference
+  - bayesian statistics
+  - NHST
+---
+
+
+
+<p>I’m a big fan of Andrew’s Gelman blog (<a href="http://andrewgelman.com/" class="uri">http://andrewgelman.com/</a>). I think that my statistical intuition is way much better after reading it. For example, there’s a post about different types of errors in NHST, not limited to the widely known Type I and Type II errors - <a href="http://andrewgelman.com/2004/12/29/type_1_type_2_t/" class="uri">http://andrewgelman.com/2004/12/29/type_1_type_2_t/</a>. You should read this before continuing because the rest of this post will be based on it, and the article which is linked in that post (<a href="http://www.stat.columbia.edu/~gelman/research/published/francis8.pdf" class="uri">http://www.stat.columbia.edu/~gelman/research/published/francis8.pdf</a>).</p>
+<p>The code below performs the simulation described at the beginning of the third paragraph of the “Type S error rates for classical and Bayesian single and multiple comparison procedures” article.</p>
+<pre class="r"><code>simulation &lt;- function(tau, sigma, n = 2000) {
+  
+  # simulate the data as described at the begining of the 3rd paragraph.
+  result &lt;- t(replicate(n, {
+    dif &lt;- rnorm(n = 1, sd = 2 * tau)
+    yy  &lt;- rnorm(1, dif, 2 * sigma)
+    c(dif, yy)
+  })) 
+  
+  bThreshold &lt;-
+    1.96 * sqrt(2) * sigma * sqrt(1 + (sigma ^ 2) / (tau ^ 2)) # Equation (6)
+  clasThreshold &lt;- 1.96 * sqrt(2) * sigma # Equation (5)
+  
+  yy &lt;- result[, 2]
+  
+  probConfClaimBayes &lt;- mean(yy &gt; bThreshold | yy &lt; -bThreshold)
+  probConfClaimClas  &lt;-
+    mean(yy &gt; clasThreshold | yy &lt; -clasThreshold)
+  
+  bayesConfClaim &lt;- result[yy &gt; bThreshold | yy &lt; -bThreshold,]
+  bayesConfClaim &lt;- sign(bayesConfClaim)
+  sErrorCondClaimBayes &lt;-
+    mean(bayesConfClaim[, 1] != bayesConfClaim[, 2])
+  
+  clasConfClaim &lt;-
+    result[yy &gt; clasThreshold | yy &lt; -clasThreshold,]
+  clasConfClaim &lt;- sign(clasConfClaim)
+  sErrorCondClaimClass &lt;-
+    mean(clasConfClaim[, 1] != clasConfClaim[, 2])
+  
+  list(
+    data = result,
+    bThreshold = bThreshold,
+    clasThreshold = clasThreshold,
+    probConfClaimBayes = probConfClaimBayes,
+    probConfClaimClas = probConfClaimClas,
+    sErrorCondClaimBayes = sErrorCondClaimBayes,
+    sErrorCondClaimClass = sErrorCondClaimClass
+  )
+  
+}
+
+format_result &lt;- function(result) {
+  
+  c(
+    sprintf(&quot;Prob of claim - Bayesian: %.2f%%&quot;, result$probConfClaimBayes * 100),
+    sprintf(&quot;Prob of claim - Classical: %.2f%%&quot;, result$probConfClaimClas * 100),
+    sprintf(&quot;Prob of S-error cond claim - Bayesian: %.2f%%&quot;, result$sErrorCondClaimBayes * 100),
+    sprintf(&quot;Prob of S-error cond claim - Classical: %.2f%%&quot;, result$sErrorCondClaimClass * 100))
+}
+
+plot_tresholds &lt;- function(result, ...) {
+  plot(result$data, xlab = &quot;theta_j - theta_k&quot;, ylab = &quot;y_j - y_k&quot;, ...)
+  abline(h = c(-result$bThreshold, result$bThreshold), lty = 2, col = &quot;green&quot;)
+  abline(h = c(-result$clasThreshold, result$clasThreshold), lty = 2, col = &quot;red&quot;)
+  abline(v = 0, lty = 2)
+  legend(&quot;topleft&quot;, c(&quot;Bayesian Treshold&quot;, &quot;Classical Treshold&quot;), lwd = 2, lty = 1, col = c(&quot;green&quot;, &quot;red&quot;))
+  
+  legend(&quot;bottomright&quot;, format_result(result))
+
+}</code></pre>
+<p>Here you can see the replicated plots from the page 7. I merged the Bayesian and Classical versions into one plot, and I also added the probabilities of claiming that there are differences and the conditional probability of S-Error given the claim.</p>
+<p>Note that I got different values than those from figure 3, but the experimental setting might cause it (I’m not using equation described in the test to approximate the result), or I have an error in the code (but I cannot find one…). However, the main point of the article is still valid;)</p>
+<pre class="r"><code>set.seed(123)
+plot_tresholds(simulation(0.5,1,2000), main = &quot;tau: 0.5, sigma: 1&quot;)</code></pre>
+<p><img src="/post/2018-07-11-type-s-errors_files/figure-html/plots-1.png" width="672" /></p>
+<pre class="r"><code>plot_tresholds(simulation(1,1,2000), main = &quot;tau: 1, sigma: 1&quot;)</code></pre>
+<p><img src="/post/2018-07-11-type-s-errors_files/figure-html/plots-2.png" width="672" /></p>
+<pre class="r"><code>plot_tresholds(simulation(2,1,2000), main = &quot;tau: 2, sigma: 1&quot;)</code></pre>
+<p><img src="/post/2018-07-11-type-s-errors_files/figure-html/plots-3.png" width="672" /></p>
+<div id="more-resources-on-this-topic" class="section level2">
+<h2>More resources on this topic:</h2>
+<p>If you want more information about S type errors or related topics check out the links below:</p>
+<ul>
+<li><a href="http://andrewgelman.com/2009/05/24/handy_statistic/" class="uri">http://andrewgelman.com/2009/05/24/handy_statistic/</a></li>
+<li><a href="http://andrewgelman.com/2016/11/13/more-on-my-paper-with-john-carlin-on-type-m-and-type-s-errors/" class="uri">http://andrewgelman.com/2016/11/13/more-on-my-paper-with-john-carlin-on-type-m-and-type-s-errors/</a></li>
+<li><a href="http://andrewgelman.com/wp-content/uploads/2016/11/retropower.pdf" class="uri">http://andrewgelman.com/wp-content/uploads/2016/11/retropower.pdf</a></li>
+<li><a href="http://www.stat.columbia.edu/~gelman/research/unpublished/p_hacking.pdf" class="uri">http://www.stat.columbia.edu/~gelman/research/unpublished/p_hacking.pdf</a></li>
+</ul>
+</div>
