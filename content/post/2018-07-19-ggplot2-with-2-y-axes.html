@@ -1,0 +1,117 @@
+---
+title: ggplot2 with 2 y-axes
+author: Zygmunt Zawadzki
+date: '2018-07-19'
+slug: ggplot2-with-2-y-axes
+tags:
+  - rpkg-ggplot2
+  - visualizations
+---
+
+
+
+<p>On one of my R workshops, someone asked me about creating a ggplot2 with two Y-axes. I do not use such types of plots, because I read somewhere that they have some problems with perception. However, I committed myself to check if it’s possible to create such visualizations using ggplot2.</p>
+<p>Without a lot of digging, I found this answer from the author of the ggplot2 package on StackOverflow - <a href="https://stackoverflow.com/a/3101876" class="uri">https://stackoverflow.com/a/3101876</a>. He thinks that those types of plots are bad, fundamentally flawed, and you shouldn’t use them, and ggplot2 does not allow to create them. However, this answer is pretty old (2013), and since that time something has changed, and ggplot2 enables you to add the second axis - check the next reply in this thread: <a href="https://stackoverflow.com/a/39805869" class="uri">https://stackoverflow.com/a/39805869</a> (but, I think that the main point about those types of graphs is still valid, and they’re evil;)). The central problem with the new functionality is that the second axis must be a transformation of the first one, so you cannot add the second axis just by using something like this:</p>
+<pre><code>p + geom_point(aes(x,y), axis = &quot;y2&quot;)</code></pre>
+<p>It’s a bit more involving. To solve this problem, you can explore the answers in the linked thread (<a href="https://stackoverflow.com/questions/3099219/plot-with-2-y-axes-one-y-axis-on-the-left-and-another-y-axis-on-the-right/3101876#3101876" class="uri">https://stackoverflow.com/questions/3099219/plot-with-2-y-axes-one-y-axis-on-the-left-and-another-y-axis-on-the-right/3101876#3101876</a>), or read the next section which gives you one possible solution based on the <a href="https://stackoverflow.com/a/36113674" class="uri">https://stackoverflow.com/a/36113674</a> (I slightly modified the code).</p>
+<div id="my-solution" class="section level3">
+<h3>My solution</h3>
+<p>In the example, I will try to create a plot based on the BJsales dataset. On the first axis, there will be the original value, and on the second, the rate of change. Let’s start with some data preparation.</p>
+<pre class="r"><code>library(ggplot2)
+library(dplyr)
+library(ggpubr) # ggarrange
+library(TTR) # ROC function
+library(lubridate) # ymd
+
+# calculate roc
+roc &lt;- ROC(BJsales, type = &quot;discrete&quot;)
+
+# prepare some fake dates for the x-axis
+dates &lt;- ymd(&quot;1970-01-01&quot;) + months(seq_along(roc))
+
+# final dataset
+salesData &lt;- data_frame(date = dates, sales = as.numeric(BJsales), roc = as.numeric(roc))
+head(salesData)</code></pre>
+<pre><code>## # A tibble: 6 x 3
+##   date       sales        roc
+##   &lt;date&gt;     &lt;dbl&gt;      &lt;dbl&gt;
+## 1 1970-02-01  200.  NA       
+## 2 1970-03-01  200.  -0.00300 
+## 3 1970-04-01  199.  -0.000501
+## 4 1970-05-01  199.  -0.00251 
+## 5 1970-06-01  199.   0.000503
+## 6 1970-07-01  200.   0.00603</code></pre>
+<p>Then I create the separate plots (they won’t be used in the final solution, but it’s always good to see how both plots look like):</p>
+<pre class="r"><code>pSales &lt;- ggplot(salesData, aes(x = date, y = sales)) + geom_line()
+pRoc &lt;- ggplot(salesData, aes(x = date, y = roc)) + geom_line(color = &quot;red&quot;)
+
+ggarrange(pSales, pRoc)</code></pre>
+<p><img src="/post/2018-07-19-ggplot2-with-2-y-axes_files/figure-html/first-1.png" width="672" /></p>
+<p>The central idea behind solving this problem is to rescale the raw values for the second axis, and then only change the labels. To achieve this, I’ll use the <code>calc_fudge_axis</code> function. It takes two arguments, first is a vector of values used on the base scale (in our case it will be <code>salesData$sales</code>) and the second one is a vector with values which must be rescaled (in this case - <code>salesData$roc</code>). See the following code:</p>
+<pre class="r"><code>calc_fudge_axis = function(y1, y2) {
+  
+  ylim1 &lt;- range(y1, na.rm = TRUE)
+  ylim2 &lt;- range(y2, na.rm = TRUE)
+  
+  mult &lt;- (ylim1[2] - ylim1[1]) / (ylim2[2] - ylim2[1])
+  miny1 &lt;- ylim1[1]
+  miny2 &lt;- ylim2[1]
+  
+  cast_to_y1 = function(x) {
+    (mult * (x - miny2)) + miny1
+  }
+  
+  yf &lt;- cast_to_y1(y2)
+
+  labelsyf &lt;- pretty(y2)
+  return(
+    list(
+      yf = yf,
+      labels = labelsyf,
+      breaks = cast_to_y1(labelsyf),
+      zero = cast_to_y1(0)
+  ))
+}
+
+rescaledVals &lt;- calc_fudge_axis(salesData$sales, y2 = salesData$roc)
+
+# check if the ranges are equal
+range(rescaledVals$yf, na.rm = TRUE) == range(salesData$sales, na.rm = TRUE)</code></pre>
+<pre><code>## [1] TRUE TRUE</code></pre>
+<pre class="r"><code>salesData &lt;- salesData %&gt;% mutate(rocScaled = rescaledVals$yf)</code></pre>
+<p>Finally, I can create the plot by using the <code>rocScaled</code> column:</p>
+<pre class="r"><code>pFinal &lt;- ggplot(salesData) + 
+  geom_line(aes(x = date, y = sales)) + 
+  geom_line(aes(x = date, y = rocScaled), color = &quot;red&quot;) + 
+  scale_y_continuous(
+    sec.axis = dup_axis(breaks = rescaledVals$breaks, labels = paste0(rescaledVals$labels * 100, &quot;%&quot;), name = &quot;ROC&quot;)
+  )
+
+# Compare final plot wiht sales plot
+ggarrange(pFinal, pSales)</code></pre>
+<p><img src="/post/2018-07-19-ggplot2-with-2-y-axes_files/figure-html/comp-1.png" width="672" /></p>
+<pre class="r"><code># Compare final plot wiht roc plot
+ggarrange(pFinal, pRoc)</code></pre>
+<p><img src="/post/2018-07-19-ggplot2-with-2-y-axes_files/figure-html/comp-2.png" width="672" /></p>
+<p>The <code>calc_fudge_axis</code> also returns the value of zero expressed in the new scale:</p>
+<pre class="r"><code># add horizontal line to the second axis
+pFinal + geom_hline(yintercept = rescaledVals$zero, linetype = &quot;dashed&quot;)</code></pre>
+<p><img src="/post/2018-07-19-ggplot2-with-2-y-axes_files/figure-html/zero-1.png" width="672" /></p>
+</div>
+<div id="summary" class="section level2">
+<h2>Summary</h2>
+<p>In this post, I demonstrated how to create a basic plot with two Y-axes, but I’m still unconvinced that anyone should use those types of charts, and our role as statisticians is to educate people about right tools to extract knowledge from the data. Remember, some people think that a 3D pie chart is a good idea…</p>
+<p>For polish readers I recommend to read the following articles:</p>
+<ul>
+<li><a href="http://smarterpoland.pl/index.php/2018/01/fighting-against-fake-data-and-visualizations/" class="uri">http://smarterpoland.pl/index.php/2018/01/fighting-against-fake-data-and-visualizations/</a></li>
+<li><a href="http://smarterpoland.pl/index.php/2017/12/najgorszy-wykres-2017-roku/" class="uri">http://smarterpoland.pl/index.php/2017/12/najgorszy-wykres-2017-roku/</a></li>
+</ul>
+</div>
+<div id="more-resources" class="section level2">
+<h2>More Resources</h2>
+<ul>
+<li><a href="https://stackoverflow.com/questions/3099219/plot-with-2-y-axes-one-y-axis-on-the-left-and-another-y-axis-on-the-right/3101876#3101876" class="uri">https://stackoverflow.com/questions/3099219/plot-with-2-y-axes-one-y-axis-on-the-left-and-another-y-axis-on-the-right/3101876#3101876</a> - original thread from StackOverflow.</li>
+<li><a href="https://rpubs.com/MarkusLoew/226759" class="uri">https://rpubs.com/MarkusLoew/226759</a> - another possible solution.</li>
+<li><a href="https://www.lri.fr/~isenberg/publications/papers/Isenberg_2011_ASO.pdf" class="uri">https://www.lri.fr/~isenberg/publications/papers/Isenberg_2011_ASO.pdf</a> - study about charts with two y-axes.</li>
+</ul>
+</div>
