@@ -1,0 +1,141 @@
+---
+title: Conda
+author: Zygmunt Zawadzki
+date: '2018-07-26'
+slug: conda
+tags:
+  - python
+  - anaconda
+  - conda
+  - py-administration
+  - r-administration
+---
+
+
+
+<p>One of the most important things in software development and data analysis is to manage your dependencies, to make sure that your work can be easily replicated or deployed to the production. In R’s ecosystem, there are plenty of tools and materials on this topic. There’s a short list:</p>
+<ul>
+<li><a href="https://rstudio.github.io/packrat/" class="uri">https://rstudio.github.io/packrat/</a></li>
+<li><a href="https://ropenscilabs.github.io/r-docker-tutorial/" class="uri">https://ropenscilabs.github.io/r-docker-tutorial/</a></li>
+<li><a href="https://mran.microsoft.com/" class="uri">https://mran.microsoft.com/</a></li>
+<li><a href="https://rviews.rstudio.com/2018/01/18/package-management-for-reproducible-r-code/" class="uri">https://rviews.rstudio.com/2018/01/18/package-management-for-reproducible-r-code/</a></li>
+<li><a href="https://cran.r-project.org/web/views/ReproducibleResearch.html" class="uri">https://cran.r-project.org/web/views/ReproducibleResearch.html</a></li>
+</ul>
+<p>However, I’m starting to spend a bit more time in the Python world, where I don’t have a lot of experience. Of course, the most obvious choice might be to install everything in the container (or virtual machine), but still, some knowledge about existing repositories is required.</p>
+<p>Without a lot of searching, I found an <code>conda</code>, which seems to be a <code>packrat</code> on steroids. It does not only manage Python packages but other libs too. I won’t describe all <code>conda</code> capabilities, because everything can be found in the documentation. If you want more information, here are some useful links:</p>
+<ul>
+<li><a href="https://conda.io/docs/" class="uri">https://conda.io/docs/</a></li>
+<li><a href="https://conda.io/docs/_downloads/conda-cheatsheet.pdf" class="uri">https://conda.io/docs/_downloads/conda-cheatsheet.pdf</a></li>
+<li><a href="https://conda.io/docs/user-guide/tasks/manage-environments.html" class="uri">https://conda.io/docs/user-guide/tasks/manage-environments.html</a></li>
+<li><a href="https://www.datacamp.com/courses/conda-essentials" class="uri">https://www.datacamp.com/courses/conda-essentials</a> - DataCamp course.</li>
+</ul>
+<div id="conda-basics" class="section level3">
+<h3>Conda basics</h3>
+<p>I use my blog not only to present my ideas, or share interesting stuff but also as a private knowledge base, where I can easily find useful code snippets. So that’s why I’ll describe some elementary but helpful conda functions.</p>
+<pre class="bash"><code># Create nlp env and install packages
+conda create --name nlp nltk gensim spacy matplotlib pandas numpy nb_conda
+
+# activate env
+source activate nlp
+
+# install package in the active env
+conda install package-name
+
+# create another env
+conda create --name mlpython pandas matplotlib numpy scipy scikit-learn nb_conda
+
+# list packages in environment
+conda list</code></pre>
+<div id="export-conda-env-to-a-file" class="section level4">
+<h4>Export conda env to a file:</h4>
+<p><code>Conda</code> allows to export environment information into a single file, and then use it to recreate everything on the different machine with one, simple command.</p>
+<pre class="bash"><code>conda create -n testEnv python=3.6 numpy -y</code></pre>
+<pre class="bash"><code># add path to the anaconda. I added this only because the code
+# is evaluated inside knitr&#39;s bash environment, and it could not
+# find the path to anaconda
+export PATH=&quot;~/anaconda3/bin:$PATH&quot; 
+
+# Export env to file:
+source activate testEnv
+conda env export &gt; environment.yml
+cat environment.yml</code></pre>
+<pre><code>## name: testEnv
+## channels:
+##   - defaults
+## dependencies:
+##   - blas=1.0=mkl
+##   - ca-certificates=2018.03.07=0
+##   - certifi=2018.4.16=py36_0
+##   - intel-openmp=2018.0.3=0
+##   - libedit=3.1.20170329=h6b74fdf_2
+##   - libffi=3.2.1=hd88cf55_4
+##   - libgcc-ng=7.2.0=hdf63c60_3
+##   - libgfortran-ng=7.2.0=hdf63c60_3
+##   - libstdcxx-ng=7.2.0=hdf63c60_3
+##   - mkl=2018.0.3=1
+##   - mkl_fft=1.0.2=py36h651fb7a_0
+##   - mkl_random=1.0.1=py36h4414c95_1
+##   - ncurses=6.1=hf484d3e_0
+##   - numpy=1.14.5=py36h1b885b7_4
+##   - numpy-base=1.14.5=py36hdbf6ddf_4
+##   - openssl=1.0.2o=h20670df_0
+##   - pip=10.0.1=py36_0
+##   - python=3.6.6=hc3d631a_0
+##   - readline=7.0=ha6073c6_4
+##   - setuptools=39.2.0=py36_0
+##   - sqlite=3.24.0=h84994c4_0
+##   - tk=8.6.7=hc745277_3
+##   - wheel=0.31.1=py36_0
+##   - xz=5.2.4=h14c3975_4
+##   - zlib=1.2.11=ha838bed_2
+## prefix: /home/zzawadz/anaconda3/envs/testEnv</code></pre>
+<pre class="bash"><code># Create env from yml file:
+conda env create -f environment.yml</code></pre>
+</div>
+</div>
+<div id="conda-env-in-jupyter-notebook" class="section level3">
+<h3>Conda env in Jupyter notebook</h3>
+<p>I think that the most common way of using Python in Data Science is by using Jupyter Notebooks (<a href="http://jupyter.org/" class="uri">http://jupyter.org/</a>). It’s quite a good piece of software, but it does not support <code>conda</code> environments out of the box. However the fix is dead easy, you need to install <code>nb_conda</code> library.</p>
+<pre class="bash"><code>conda install nb_conda</code></pre>
+<p>More info:</p>
+<ul>
+<li><a href="https://github.com/Anaconda-Platform/nb_conda" class="uri">https://github.com/Anaconda-Platform/nb_conda</a> - <code>nb_conda</code> repository.</li>
+<li><a href="https://dev.widemeadows.de/2017/08/23/use-your-conda-environment-in-jupyter-notebooks/" class="uri">https://dev.widemeadows.de/2017/08/23/use-your-conda-environment-in-jupyter-notebooks/</a> - a short blog post with a screenshot of the menu for selecting environment.</li>
+</ul>
+</div>
+<div id="conda-environments-in-rs-knitr." class="section level3">
+<h3>Conda environments in R’s knitr.</h3>
+<p>R’s <code>knitr</code> allows using Python’s code chunks inside <code>Rmarkdown</code> documents. I won’t describe how to do this because it’s super easy. You can find more information on <a href="https://cran.r-project.org/web/packages/reticulate/vignettes/r_markdown.html" class="uri">https://cran.r-project.org/web/packages/reticulate/vignettes/r_markdown.html</a> or <a href="https://github.com/yihui/knitr-examples/blob/master/023-engine-python.Rmd" class="uri">https://github.com/yihui/knitr-examples/blob/master/023-engine-python.Rmd</a> (this is an example document).</p>
+<p>The only thing that you might need is to use a specific conda environment in <code>knitr</code> without calling <code>source activate envname</code>.</p>
+<p>Let’s start with creating two environments:</p>
+<pre class="bash"><code>conda create -n py36 python=3.6 -y
+conda create -n py27 python=2.7 -y</code></pre>
+<p>To launch a specific version I would need to activate the environment, but I can also use a standard path to the executable which should be located somewhere in <code>~/anaconda3/envs/{envname}/bin/python</code>. I can test this using the following code (note that I’m using <code>knitr</code> to render this post, and I can use bash to evaluate the chunk):</p>
+<pre class="bash"><code>~/anaconda3/envs/py36/bin/python --version</code></pre>
+<pre><code>## Python 3.6.6 :: Anaconda, Inc.</code></pre>
+<p>And the Python’s version in the second env:</p>
+<pre class="bash"><code>~/anaconda3/envs/py27/bin/python --version</code></pre>
+<pre><code>## Python 2.7.15 :: Anaconda, Inc.</code></pre>
+<p>There’s one last step. I need to instruct R to use a specific Python version when executing the Python’s chunks (this is the R’s chunk):</p>
+<pre class="r"><code>library(knitr)
+opts_chunk$set(
+  engine.path = list(
+    python = &#39;~/anaconda3/envs/py36/bin/python&#39;
+  )
+)</code></pre>
+<p>And the example:</p>
+<pre class="python"><code># This is python
+import sys
+print(sys.version_info)</code></pre>
+<pre><code>## sys.version_info(major=3, minor=6, micro=6, releaselevel=&#39;final&#39;, serial=0)</code></pre>
+<pre class="python"><code>print(1 + 1)</code></pre>
+<pre><code>## 2</code></pre>
+<pre class="python"><code>x = 20</code></pre>
+<p>Note that the variables are shared between code chunks:</p>
+<pre class="python"><code>print(x * 20)</code></pre>
+<pre><code>## 400</code></pre>
+</div>
+<div id="summary" class="section level2">
+<h2>Summary</h2>
+<p>It seems to be that <code>conda</code> is a good way to manage Python’s dependencies. The only problem is that not all packages can be installed from the <code>conda</code> cloud (e.g., the <code>polyglot</code> - <a href="http://polyglot.readthedocs.io/en/latest/" class="uri">http://polyglot.readthedocs.io/en/latest/</a>), and they require a bit more effort, but this is not in the scope of this post;)</p>
+</div>
