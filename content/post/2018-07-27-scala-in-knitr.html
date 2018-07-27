@@ -1,0 +1,198 @@
+---
+title: Scala in knitr
+author: Zygmunt Zawadzki
+date: '2018-07-27'
+slug: scala-in-knitr
+output: 
+  html_document: 
+    highlight: pygments
+tags: 
+  - rpkg-knitr
+  - rpkg-rscala
+  - scala
+  - rpkg-rmarkdown
+  - spark
+  - sbt
+  - rpkg-blogdown
+---
+
+
+
+<p>I use <code>blogdown</code> to write my blog posts. It allows me to create a Rmarkdown file, and then execute all the code and format the output. It has great support for R (it’s R native) and Python. Some other languages are also supported, but the functionality is pretty limited. For example, each code chunk is evaluated in a separate session (I’m not sure if it’s the case for all engines, I read about this in <a href="https://yihui.name/knitr/demo/engines/" class="uri">https://yihui.name/knitr/demo/engines/</a>, but this article is pretty old, however from inspecting the code it seems that it’s true, except for Python which is now fully supported). Unfortunately, I want to write some blog posts about Scala without having to evaluate the code in the different environment and then copy the results to the Rmd file.</p>
+<p>Fortunately, there’s a simple example showing how to create knitr’s Scala engine using <code>jvmr</code> package - <a href="https://github.com/saurfang/scalarmd" class="uri">https://github.com/saurfang/scalarmd</a>. The only problem is that <code>jvmr</code> was removed from CRAN, but there’s a new package called <code>rscala</code> which can serve as a replacement.</p>
+<p>The code below shows how to register a new Scala engine based on the <code>rscala</code>:</p>
+<pre class="r"><code>library(rscala)
+library(knitr)
+
+# ... args passed to rscala::scala functions. See ?rscala::scala for more informations.
+make_scala_engine &lt;- function(...) {
+  
+  rscala::scala(assign.name = &quot;engine&quot;, serialize.output = TRUE, stdout = &quot;&quot;, ...)
+  engine &lt;- force(engine)
+  function(options) {
+    code &lt;- paste(options$code, collapse = &quot;\n&quot;)
+    output &lt;- capture.output(invisible(engine + code))
+    engine_output(options, options$code, output)
+  }
+}
+
+# Register new engine in knitr
+knit_engines$set(scala = make_scala_engine())</code></pre>
+<p>So let’s test the new engine:</p>
+<pre class="scala"><code>val x = 1+1
+val y = 2+2
+val z = 1 to 3</code></pre>
+<p>And in the next chunk shows that the variables defined in the previous listing are still available:</p>
+<pre class="scala"><code>z.foreach(println(_))</code></pre>
+<pre><code>## 1
+## 2
+## 3</code></pre>
+<p>It’s possible to define more Scala engines, and each will have separated from others (variables won’t be shared, and so on). Here’s the definition of the <code>scalar2</code> engine:</p>
+<pre class="r"><code>knit_engines$set(scalar2 = make_scala_engine())</code></pre>
+<p>Some code (the chunk header is ```<code>{scalar2}</code>):</p>
+<pre class="scalar2"><code>// scala2
+val x = 1 + 10
+println(x)</code></pre>
+<pre><code>## 11</code></pre>
+<p>And the ```<code>{scala}</code> engine once again:</p>
+<pre class="scala"><code>// scala
+println(x)</code></pre>
+<pre><code>## 2</code></pre>
+<p>The new engine works pretty well, but it only supports only the text output. Plots are not recorded. I will try to address this in the future posts. There are only two things I need to describe to make using Scala engine more useful - adding custom JARs, and integration with <code>sbt</code>.</p>
+<div id="custom-jars" class="section level3">
+<h3>Custom jars</h3>
+<p>Adding JARs to <code>rscala</code> is pretty straightforward because you only need to specify the <code>JARs</code> argument (it <code>make_scala_engine</code> an ellipsis is used to pass it to the <code>rscala::scala</code> function). The only problem it might be that some JARs might break the Scala interpreter, especially if you try to add base Scala’s JARs like <code>scala-compiler</code> or <code>scala-library</code>. In the next listing, I’m showing the error message which might suggest that some forbidden JARs were added:</p>
+<pre class="r"><code>library(rscala)
+## add all spark jars
+jars &lt;- dir(&quot;~/spark/spark-2.1.0-bin-hadoop2.7/jars/&quot;, full.names = TRUE)
+rscala::scala(assign.name = &quot;sc&quot;, serialize.output = TRUE, stdout = &quot;&quot;, JARs = jars)</code></pre>
+<pre><code>## error: error while loading package, class file &#39;/usr/share/scala-2.11/lib/scala-library.jar(scala/reflect/package.class)&#39; is broken
+## (class java.lang.RuntimeException/Scala class file does not contain Scala annotation)
+## error: error while loading package, class file &#39;/usr/share/scala-2.11/lib/scala-library.jar(scala/package.class)&#39; is broken
+## (class java.lang.RuntimeException/Scala class file does not contain Scala annotation)</code></pre>
+<p>In the next chunk, the problematic JARs are removed using a regular expression, and a new engine is created which allows to use the Spark code in the <code>knitr</code> code chunks.</p>
+<pre class="r"><code>jars &lt;- dir(&quot;~/spark/spark-2.1.0-bin-hadoop2.7/jars/&quot;, full.names = TRUE)
+
+jarsToRemove &lt;- c(&quot;scala-compiler-.*\\.jar$&quot;,
+                  &quot;scala-library-.*\\.jar$&quot;,
+                  &quot;scala-reflect-.*\\.jar$&quot;,
+                  &quot;scalap-.*\\.jar$&quot;,
+                  &quot;scala-parser-combinators_.*\\.jar$&quot;,
+                  &quot;scala-xml_.*\\.jar$&quot;)
+jars &lt;- jars[!grepl(jars, pattern = paste(jarsToRemove, collapse = &quot;|&quot;))]
+
+
+knit_engines$set(scala = make_scala_engine(JARs = jars))</code></pre>
+<p>Short example showing that Spark works as expected:</p>
+<pre class="scala"><code>println(&quot;Scala version: &quot; + util.Properties.versionString)
+import org.apache.spark.sql.SparkSession
+
+val spark = SparkSession.builder.master(&quot;local&quot;)
+              .appName(&quot;Simple Application&quot;)
+              .getOrCreate()
+
+val data = Array(1, 2, 3, 4, 5)
+val spData = spark.sparkContext.parallelize(data)
+val count = spData.count
+
+println(spData)
+println(s&quot;Spark array size: $count&quot;)
+</code></pre>
+<pre><code>## Scala version: version 2.11.12
+## ParallelCollectionRDD[0] at parallelize at &lt;console&gt;:19
+## Spark array size: 5</code></pre>
+<p>And an example with printing the data frame:</p>
+<pre class="r"><code># Create csv file in R:
+write.csv(file = &quot;/tmp/iris.csv&quot;, x = iris)</code></pre>
+<pre class="scala"><code>val df = spark.read
+         .format(&quot;csv&quot;)
+         .option(&quot;header&quot;, &quot;true&quot;)
+         .load(&quot;file:///tmp/iris.csv&quot;)
+df.show(10)</code></pre>
+<pre><code>## +---+------------+-----------+------------+-----------+-------+
+## |_c0|Sepal.Length|Sepal.Width|Petal.Length|Petal.Width|Species|
+## +---+------------+-----------+------------+-----------+-------+
+## |  1|         5.1|        3.5|         1.4|        0.2| setosa|
+## |  2|         4.9|          3|         1.4|        0.2| setosa|
+## |  3|         4.7|        3.2|         1.3|        0.2| setosa|
+## |  4|         4.6|        3.1|         1.5|        0.2| setosa|
+## |  5|           5|        3.6|         1.4|        0.2| setosa|
+## |  6|         5.4|        3.9|         1.7|        0.4| setosa|
+## |  7|         4.6|        3.4|         1.4|        0.3| setosa|
+## |  8|           5|        3.4|         1.5|        0.2| setosa|
+## |  9|         4.4|        2.9|         1.4|        0.2| setosa|
+## | 10|         4.9|        3.1|         1.5|        0.1| setosa|
+## +---+------------+-----------+------------+-----------+-------+
+## only showing top 10 rows</code></pre>
+<pre class="scala"><code>df.groupBy(&quot;Species&quot;).count.show</code></pre>
+<pre><code>## +----------+-----+
+## |   Species|count|
+## +----------+-----+
+## | virginica|   50|
+## |versicolor|   50|
+## |    setosa|   50|
+## +----------+-----+</code></pre>
+</div>
+<div id="using-scala-engine-with-sbt" class="section level3">
+<h3>Using Scala engine with sbt</h3>
+<p>Adding JARs is pretty straightforward, but it’s much harder to determine which ones should be added to work seamlessly. Note that you need to add all the dependencies, not only the one main JAR file. Fortunately, the <code>sbt</code> build tool can be used to create a dictionary containing all the required files. In the first step, you need to create the standard <code>build.sbt</code> file containing the information about the dependencies, and one additional line <code>enablePlugins(PackPlugin)</code>, which is required to make a bundle with all JARs.</p>
+<pre><code>scalaVersion := &quot;2.11.12&quot;
+libraryDependencies += &quot;org.apache.spark&quot; %% &quot;spark-core&quot; % &quot;2.3.0&quot;
+libraryDependencies += &quot;org.apache.spark&quot; %% &quot;spark-sql&quot; % &quot;2.3.0&quot;
+enablePlugins(PackPlugin)</code></pre>
+<p>The second file should be called <code>plugins.sbt</code> it has to be located in the subdirectory <code>project/</code>.</p>
+<pre><code>addSbtPlugin(&quot;org.xerial.sbt&quot; % &quot;sbt-pack&quot; % &quot;0.11&quot;)</code></pre>
+<p>Then you can use <code>sbt pack</code>, which will create a subdirectory <code>target/pack/lib</code> with all JARs. Note that some JARs might be problematic, like those described in the section above (<code>scala-compiler</code> and so on), so you should exclude them manually in the R chunk when you’re setting up the Scala engine.</p>
+<p>The code below shows all the steps. I’m creating the directories, and files in the R session.</p>
+<pre class="r"><code>dir.create(&quot;/tmp/sbt-pack-example/project&quot;, showWarnings = FALSE, recursive = TRUE)
+
+file.copy(&quot;../../code/sbt-pack-example/build.sbt&quot;, &quot;/tmp/sbt-pack-example/build.sbt&quot;)
+file.copy(&quot;../../code/sbt-pack-example/project/plugins.sbt&quot;, &quot;/tmp/sbt-pack-example/project/plugins.sbt&quot;)</code></pre>
+<pre class="bash"><code>cd /tmp/sbt-pack-example/
+sbt pack</code></pre>
+<pre class="bash"><code>ls /tmp/sbt-pack-example/target/pack/lib | head</code></pre>
+<pre><code>## activation-1.1.1.jar
+## aircompressor-0.8.jar
+## antlr4-runtime-4.7.jar
+## aopalliance-1.0.jar
+## aopalliance-repackaged-2.4.0-b34.jar
+## apacheds-i18n-2.0.0-M15.jar
+## apacheds-kerberos-codec-2.0.0-M15.jar
+## api-asn1-api-1.0.0-M20.jar
+## api-util-1.0.0-M20.jar
+## arrow-format-0.8.0.jar</code></pre>
+</div>
+<div id="resources" class="section level3">
+<h3>Resources:</h3>
+<ul>
+<li><a href="https://github.com/saurfang/scalarmd" class="uri">https://github.com/saurfang/scalarmd</a> - a template used to create Scala’s engine based on <code>rscala</code>.</li>
+<li><a href="https://yihui.name/knitr/demo/engines/" class="uri">https://yihui.name/knitr/demo/engines/</a> - an old post about <code>knitr</code>’s engines.</li>
+<li><a href="https://bookdown.org/yihui/rmarkdown/language-engines.html" class="uri">https://bookdown.org/yihui/rmarkdown/language-engines.html</a> - more information about <code>knitr</code>’s engines.</li>
+</ul>
+</div>
+<div id="misc" class="section level3">
+<h3>Misc:</h3>
+<div id="list-of-all-engines-supported-in-knitr" class="section level4">
+<h4>List of all engines supported in <code>knitr</code>:</h4>
+<pre class="r"><code>library(knitr)
+names(knit_engines$get())</code></pre>
+<pre><code>##  [1] &quot;awk&quot;         &quot;bash&quot;        &quot;coffee&quot;      &quot;gawk&quot;        &quot;groovy&quot;     
+##  [6] &quot;haskell&quot;     &quot;lein&quot;        &quot;mysql&quot;       &quot;node&quot;        &quot;octave&quot;     
+## [11] &quot;perl&quot;        &quot;psql&quot;        &quot;Rscript&quot;     &quot;ruby&quot;        &quot;sas&quot;        
+## [16] &quot;scala&quot;       &quot;sed&quot;         &quot;sh&quot;          &quot;stata&quot;       &quot;zsh&quot;        
+## [21] &quot;highlight&quot;   &quot;Rcpp&quot;        &quot;tikz&quot;        &quot;dot&quot;         &quot;c&quot;          
+## [26] &quot;fortran&quot;     &quot;fortran95&quot;   &quot;asy&quot;         &quot;cat&quot;         &quot;asis&quot;       
+## [31] &quot;stan&quot;        &quot;block&quot;       &quot;block2&quot;      &quot;js&quot;          &quot;css&quot;        
+## [36] &quot;sql&quot;         &quot;go&quot;          &quot;python&quot;      &quot;julia&quot;       &quot;theorem&quot;    
+## [41] &quot;lemma&quot;       &quot;definition&quot;  &quot;corollary&quot;   &quot;proposition&quot; &quot;example&quot;    
+## [46] &quot;exercise&quot;    &quot;proof&quot;       &quot;remark&quot;      &quot;solution&quot;    &quot;scalar2&quot;</code></pre>
+</div>
+<div id="syntax-highlighting" class="section level4">
+<h4>Syntax highlighting</h4>
+<p>For the syntax highlighting in Scala’s chunks you need to include the following code in the file header:</p>
+<pre><code>output: 
+  html_document: 
+    highlight: pygments</code></pre>
+<p>Note, that when the name of the engine is different than <code>scala</code>, the syntax highlighting is not working (e.g. in the case of <code>knit_engines$set(scalar2 = make_scala_engine())</code>). I did not bother to solve this because I don’t think that I would ever need to have more than one Scala’s interpreter in a single document.</p>
+</div>
+</div>

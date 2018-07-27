@@ -1,0 +1,213 @@
+---
+title: Scala in knitr
+author: Zygmunt Zawadzki
+date: '2018-07-27'
+slug: scala-in-knitr
+output: 
+  html_document: 
+    highlight: pygments
+tags: 
+  - rpkg-knitr
+  - rpkg-rscala
+  - scala
+  - rpkg-rmarkdown
+  - spark
+  - sbt
+  - rpkg-blogdown
+---
+
+
+I use `blogdown` to write my blog posts. It allows me to create a Rmarkdown file, and then execute all the code and format the output. It has great support for R (it's R native) and Python. Some other languages are also supported, but the functionality is pretty limited. For example, each code chunk is evaluated in a separate session (I'm not sure if it's the case for all engines, I read about this in https://yihui.name/knitr/demo/engines/, but this article is pretty old, however from inspecting the code it seems that it's true, except for Python which is now fully supported). Unfortunately, I want to write some blog posts about Scala without having to evaluate the code in the different environment and then copy the results to the Rmd file.
+
+Fortunately, there's a simple example showing how to create knitr's Scala engine using `jvmr` package - https://github.com/saurfang/scalarmd. The only problem is that `jvmr` was removed from CRAN, but there's a new package called `rscala` which can serve as a replacement.
+
+The code below shows how to register a new Scala engine based on the `rscala`:
+
+```{r, highlight=TRUE, }
+library(rscala)
+library(knitr)
+
+# ... args passed to rscala::scala functions. See ?rscala::scala for more informations.
+make_scala_engine <- function(...) {
+  
+  rscala::scala(assign.name = "engine", serialize.output = TRUE, stdout = "", ...)
+  engine <- force(engine)
+  function(options) {
+    code <- paste(options$code, collapse = "\n")
+    output <- capture.output(invisible(engine + code))
+    engine_output(options, options$code, output)
+  }
+}
+
+# Register new engine in knitr
+knit_engines$set(scala = make_scala_engine())
+
+```
+
+So let's test the new engine:
+
+```{scala}
+val x = 1+1
+val y = 2+2
+val z = 1 to 3
+```
+
+And in the next chunk shows that the variables defined in the previous listing are still available:
+
+```{scala}
+z.foreach(println(_))
+```
+
+It's possible to define more Scala engines, and each will have separated from others (variables won't be shared, and so on). 
+Here's the definition of the `scalar2` engine:
+
+```{r}
+knit_engines$set(scalar2 = make_scala_engine())
+```
+
+Some code (the chunk header is ````{scalar2}`):
+
+```{scalar2}
+// scala2
+val x = 1 + 10
+println(x)
+```
+
+And the ````{scala}` engine once again:
+
+```{scala}
+// scala
+println(x)
+```
+
+The new engine works pretty well, but it only supports only the text output. Plots are not recorded. I will try to address this in the future posts. There are only two things I need to describe to make using Scala engine more useful - adding custom JARs, and integration with `sbt`.
+
+### Custom jars
+
+Adding JARs to `rscala` is pretty straightforward because you only need to specify the `JARs` argument (it `make_scala_engine` an ellipsis is used to pass it to the `rscala::scala` function). The only problem it might be that some JARs might break the Scala interpreter, especially if you try to add base Scala's JARs like `scala-compiler` or `scala-library`. In the next listing, I'm showing the error message which might suggest that some forbidden JARs were added:
+
+```{r, error=TRUE}
+library(rscala)
+## add all spark jars
+jars <- dir("~/spark/spark-2.1.0-bin-hadoop2.7/jars/", full.names = TRUE)
+rscala::scala(assign.name = "sc", serialize.output = TRUE, stdout = "", JARs = jars)
+```
+
+In the next chunk, the problematic JARs are removed using a regular expression, and a new engine is created which allows to use the Spark code in the `knitr` code chunks.
+
+```{r}
+jars <- dir("~/spark/spark-2.1.0-bin-hadoop2.7/jars/", full.names = TRUE)
+
+jarsToRemove <- c("scala-compiler-.*\\.jar$",
+                  "scala-library-.*\\.jar$",
+                  "scala-reflect-.*\\.jar$",
+                  "scalap-.*\\.jar$",
+                  "scala-parser-combinators_.*\\.jar$",
+                  "scala-xml_.*\\.jar$")
+jars <- jars[!grepl(jars, pattern = paste(jarsToRemove, collapse = "|"))]
+
+
+knit_engines$set(scala = make_scala_engine(JARs = jars))
+```
+
+Short example showing that Spark works as expected:
+
+```{scala}
+println("Scala version: " + util.Properties.versionString)
+import org.apache.spark.sql.SparkSession
+
+val spark = SparkSession.builder.master("local")
+              .appName("Simple Application")
+              .getOrCreate()
+
+val data = Array(1, 2, 3, 4, 5)
+val spData = spark.sparkContext.parallelize(data)
+val count = spData.count
+
+println(spData)
+println(s"Spark array size: $count")
+
+```
+
+And an example with printing the data frame:
+
+```{r}
+# Create csv file in R:
+write.csv(file = "/tmp/iris.csv", x = iris)
+```
+
+```{scala}
+val df = spark.read
+         .format("csv")
+         .option("header", "true")
+         .load("file:///tmp/iris.csv")
+df.show(10)
+```
+
+```{scala}
+df.groupBy("Species").count.show
+```
+
+### Using Scala engine with sbt 
+
+Adding JARs is pretty straightforward, but it's much harder to determine which ones should be added to work seamlessly. Note that you need to add all the dependencies, not only the one main JAR file. Fortunately, the `sbt` build tool can be used to create a dictionary containing all the required files. In the first step, you need to create the standard `build.sbt` file containing the information about the dependencies, and one additional line `enablePlugins(PackPlugin)`, which is required to make a bundle with all JARs.
+
+```
+scalaVersion := "2.11.12"
+libraryDependencies += "org.apache.spark" %% "spark-core" % "2.3.0"
+libraryDependencies += "org.apache.spark" %% "spark-sql" % "2.3.0"
+enablePlugins(PackPlugin)
+```
+
+The second file should be called `plugins.sbt` it has to be located in the subdirectory `project/`.
+
+```
+addSbtPlugin("org.xerial.sbt" % "sbt-pack" % "0.11")
+```
+
+Then you can use `sbt pack`, which will create a subdirectory `target/pack/lib` with all JARs. Note that some JARs might be problematic, like those described in the section above (`scala-compiler` and so on), so you should exclude them manually in the R chunk when you're setting up the Scala engine.
+
+
+The code below shows all the steps. I'm creating the directories, and files in the R session.
+
+```{r, results='hide'}
+dir.create("/tmp/sbt-pack-example/project", showWarnings = FALSE, recursive = TRUE)
+
+file.copy("../../code/sbt-pack-example/build.sbt", "/tmp/sbt-pack-example/build.sbt")
+file.copy("../../code/sbt-pack-example/project/plugins.sbt", "/tmp/sbt-pack-example/project/plugins.sbt")
+```
+
+```{bash, eval=FALSE}
+cd /tmp/sbt-pack-example/
+sbt pack
+```
+
+```{bash}
+ls /tmp/sbt-pack-example/target/pack/lib | head
+```
+
+### Resources:
+
+- https://github.com/saurfang/scalarmd - a template used to create Scala's engine based on `rscala`.
+- https://yihui.name/knitr/demo/engines/ - an old post about `knitr`'s engines.
+- https://bookdown.org/yihui/rmarkdown/language-engines.html - more information about `knitr`'s engines.
+
+### Misc:
+
+#### List of all engines supported in `knitr`:
+
+```{r}
+library(knitr)
+names(knit_engines$get())
+```
+
+#### Syntax highlighting
+
+For the syntax highlighting in Scala's chunks you need to include the following code in the file header:
+```
+output: 
+  html_document: 
+    highlight: pygments
+```
+
+Note, that when the name of the engine is different than `scala`, the syntax highlighting is not working (e.g. in the case of `knit_engines$set(scalar2 = make_scala_engine())`). I did not bother to solve this because I don't think that I would ever need to have more than one Scala's interpreter in a single document.
