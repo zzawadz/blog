@@ -2,19 +2,68 @@
   {{ i18n "tags" }} | {{ if isset .Site.Params "seotitle" }}{{ .Site.Params.seotitle }}{{ else }}{{ .Site.Title }}{{ end }}
 {{ end }}
 
+
+
 {{ define "main" }}
+{{ $scala := "scala|spark|sbt" }}
+{{ $r := "^r|shiny" }}
+{{ $python := "^py-|python|conda" }}
+{{ $exclude := printf "%s|%s|%s" $scala $r $python }}
+
   {{ partial "header.html" . }}
   <section class="main post-detail terms-list">
     <header class="post-header">
       <h1 class="post-title">{{ i18n "tags" }}</h1>
     </header>
+
+    <h1>Scala/Spark</h1>
+
     <div class="tags-cloud">
       {{ $data := .Data }}
       {{ range $key, $value := $data.Terms.ByCount }}
-        {{ $weight := $value.Count }}
-        <a href="/{{ $data.Plural }}/{{ $value.Name | urlize }}/" class="tag-{{ if eq $weight 1 }}s{{ else if eq $weight 2 }}m{{ else if eq $weight 4 }}l{{ else if eq $weight 8 }}xl{{ else }}xxl{{ end }}">{{ $value.Name }}</a>
+          {{ if (findRE $scala $value.Name ) }}
+          {{ $weight := $value.Count }}
+          <a href="/{{ $data.Plural }}/{{ $value.Name | urlize }}/" class="tag-{{ if eq $weight 1 }}s{{ else if eq $weight 2 }}m{{ else if eq $weight 4 }}l{{ else if eq $weight 8 }}xl{{ else }}xxl{{ end }}">{{ $value.Name | replaceRE "^spark-|^scala-" "" }}</a>
+          {{ end }}
       {{ end }}
     </div>
+
+    <h1>R</h1>
+
+    <div class="tags-cloud">
+      {{ $data := .Data }}
+      {{ range $key, $value := $data.Terms.ByCount }}
+          {{ if (findRE $r $value.Name ) }}
+          {{ $weight := $value.Count }}
+          <a href="/{{ $data.Plural }}/{{ $value.Name | urlize }}/" class="tag-{{ if eq $weight 1 }}s{{ else if eq $weight 2 }}m{{ else if eq $weight 4 }}l{{ else if eq $weight 8 }}xl{{ else }}xxl{{ end }}">{{ $value.Name | replaceRE "^rpkg-|^r-" "" }}</a>
+          {{ end }}
+      {{ end }}
+    </div>
+
+    <h1>Pyton</h1>
+
+    <div class="tags-cloud">
+      {{ $data := .Data }}
+      {{ range $key, $value := $data.Terms.ByCount }}
+          {{ if (findRE $python $value.Name ) }}
+          {{ $weight := $value.Count }}
+          <a href="/{{ $data.Plural }}/{{ $value.Name | urlize }}/" class="tag-{{ if eq $weight 1 }}s{{ else if eq $weight 2 }}m{{ else if eq $weight 4 }}l{{ else if eq $weight 8 }}xl{{ else }}xxl{{ end }}">{{ $value.Name | replaceRE "^py-" "" }}</a>
+          {{ end }}
+      {{ end }}
+    </div>
+
+    <h1>Miscellaneous</h1>
+    <div class="tags-cloud">
+      {{ $data := .Data }}
+      {{ range $key, $value := $data.Terms.ByCount }}
+        {{ if not (findRE $exclude $value.Name ) }}
+        {{ $weight := $value.Count }}
+        <a href="/{{ $data.Plural }}/{{ $value.Name | urlize }}/" class="tag-{{ if eq $weight 1 }}s{{ else if eq $weight 2 }}m{{ else if eq $weight 4 }}l{{ else if eq $weight 8 }}xl{{ else }}xxl{{ end }}">{{ $value.Name }}</a>
+        {{ end }}
+      {{ end }}
+    </div>
+
+
   </section>
   {{ partial "footer.html" . }}
 {{ end }}
