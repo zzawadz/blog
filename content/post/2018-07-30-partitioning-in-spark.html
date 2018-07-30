@@ -1,0 +1,326 @@
+---
+title: Partitioning in Spark
+author: Zygmunt Zawadzki
+date: '2018-07-29'
+slug: partitioning-in-spark
+tags:
+  - spark
+  - scala
+  - spark-partitioning
+  - spark-debugging
+  - spark-tuning
+---
+
+
+
+<p>Spark is delightful for Big Data analysis. It allows using very high-level code to perform a large variety of operations. It also supports SQL, so you don’t need to learn a lot of new stuff to start being productive in Spark (of course assuming that you have some knowledge of SQL).</p>
+<p>However, if you want to use Spark more efficiently, you need to learn a lot of concepts, especially about data partitioning, relations between partitions (narrow dependencies vs. wide dependencies), and shuffling. I can recommend the <a href="https://www.coursera.org/learn/scala-spark-big-data" class="uri">https://www.coursera.org/learn/scala-spark-big-data</a> (it covers a lot of fundamental concepts like RDD and so on), or you can find some materials covering those topics all over the internet.</p>
+<p>Nevertheless, in this post, I’ll try to describe some ideas how to look under the hood of the Spark operations related to DataFrames.</p>
+<div id="data-preparation." class="section level2">
+<h2>Data preparation.</h2>
+<p>Let’s start with preparing some data. I’ll use a small sample from the immortal iris dataset. This is done in R:</p>
+<pre class="r"><code>path &lt;- &quot;/tmp/iris.csv&quot;
+ir &lt;- iris[c(1:3, 51:53, 101:103), c(1,5)]
+colnames(ir) &lt;- c(&quot;sep_len&quot;, &quot;species&quot;)
+write.csv(ir, file = path, row.names = FALSE)</code></pre>
+<p>Print the data:</p>
+<pre class="bash"><code>cat /tmp/iris.csv</code></pre>
+<pre><code>## &quot;sep_len&quot;,&quot;species&quot;
+## 5.1,&quot;setosa&quot;
+## 4.9,&quot;setosa&quot;
+## 4.7,&quot;setosa&quot;
+## 7,&quot;versicolor&quot;
+## 6.4,&quot;versicolor&quot;
+## 6.9,&quot;versicolor&quot;
+## 6.3,&quot;virginica&quot;
+## 5.8,&quot;virginica&quot;
+## 7.1,&quot;virginica&quot;</code></pre>
+<p>Or there’s an excellent column function in Linux:</p>
+<pre class="bash"><code>column -s, -t &lt; /tmp/iris.csv</code></pre>
+<pre><code>## &quot;sep_len&quot;  &quot;species&quot;
+## 5.1        &quot;setosa&quot;
+## 4.9        &quot;setosa&quot;
+## 4.7        &quot;setosa&quot;
+## 7          &quot;versicolor&quot;
+## 6.4        &quot;versicolor&quot;
+## 6.9        &quot;versicolor&quot;
+## 6.3        &quot;virginica&quot;
+## 5.8        &quot;virginica&quot;
+## 7.1        &quot;virginica&quot;</code></pre>
+</div>
+<div id="setup-spark-engine-for-knitr." class="section level2">
+<h2>Setup Spark engine for knitr.</h2>
+<p>I’m using my Scala engine from the previous post (<a href="https://www.zstat.pl/2018/07/27/scala-in-knitr/" class="uri">https://www.zstat.pl/2018/07/27/scala-in-knitr/</a>) to render the outputs from Scala code. The code below prepares everything to run Scala/Spark session inside R’s knitr:</p>
+<pre class="r"><code>library(knitr)
+library(rscala)
+library(knitr)
+# ... args passed to rscala::scala functions. See ?rscala::scala for more informations.
+make_scala_engine &lt;- function(...) {
+  
+  rscala::scala(assign.name = &quot;engine&quot;, serialize.output = TRUE, stdout = &quot;&quot;, ...)
+  engine &lt;- force(engine)
+  function(options) {
+    code &lt;- paste(options$code, collapse = &quot;\n&quot;)
+    output &lt;- capture.output(invisible(engine + code))
+    engine_output(options, options$code, output)
+  }
+}
+
+jars &lt;- dir(&quot;~/spark/spark-2.3.0-bin-hadoop2.7/jars/&quot;, full.names = TRUE)
+
+jarsToRemove &lt;- c(&quot;scala-compiler-.*\\.jar$&quot;,
+                  &quot;scala-library-.*\\.jar$&quot;,
+                  &quot;scala-reflect-.*\\.jar$&quot;,
+                  &quot;scalap-.*\\.jar$&quot;,
+                  &quot;scala-parser-combinators_.*\\.jar$&quot;,
+                  &quot;scala-xml_.*\\.jar$&quot;)
+jars &lt;- jars[!grepl(jars, pattern = paste(jarsToRemove, collapse = &quot;|&quot;))]
+knit_engines$set(scala = make_scala_engine(JARs = jars))</code></pre>
+</div>
+<div id="first-look-at-the-data." class="section level2">
+<h2>First look at the data.</h2>
+<p>The code below creates a <code>SparkSession</code> which is required to perform all the Spark operations. Then, the csv is loaded from the local file. I use <code>spark_partition_id</code> to add a new column with the id of the partition in which the row is located. It’s a useful function if you want to check how Spark partitioned your data.</p>
+<pre class="scala"><code>import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.Row
+import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.functions.collect_list
+import org.apache.spark.sql.functions._
+
+val spark = SparkSession.builder.master(&quot;local[*]&quot;)
+              .appName(&quot;Simple Application&quot;)
+              .getOrCreate()
+
+val df = spark.read
+         .format(&quot;csv&quot;)
+         .option(&quot;header&quot;, &quot;true&quot;)
+         .load(&quot;file:///tmp/iris.csv&quot;)
+         .withColumn(&quot;pid&quot;, spark_partition_id())</code></pre>
+<p>Now I can examine the data by calling the <code>show</code> function.</p>
+<pre class="scala"><code>df.show</code></pre>
+<pre><code>## +-------+----------+---+
+## |sep_len|   species|pid|
+## +-------+----------+---+
+## |    5.1|    setosa|  0|
+## |    4.9|    setosa|  0|
+## |    4.7|    setosa|  0|
+## |      7|versicolor|  0|
+## |    6.4|versicolor|  0|
+## |    6.9|versicolor|  0|
+## |    6.3| virginica|  0|
+## |    5.8| virginica|  0|
+## |    7.1| virginica|  0|
+## +-------+----------+---+</code></pre>
+<p>It seems that Spark put all the data into just one partition. If I want to take advantage of the parallel nature of Spark one partition is a bit problematic. Spark uses partitions to spread the data between workers, and one partition means that only one job will be scheduled.</p>
+</div>
+<div id="repartition-the-dataframe." class="section level1">
+<h1>Repartition the DataFrame.</h1>
+<p>To spread the data into multiple partitions the <code>repartition</code> method should be used. The first argument specifies the number of resulting partitions. Let’s run the code, and inspect the result:</p>
+<pre class="scala"><code>val dfRep = spark.read
+         .format(&quot;csv&quot;)
+         .option(&quot;header&quot;, &quot;true&quot;)
+         .load(&quot;file:///tmp/iris.csv&quot;)
+         .repartition(3)
+         .withColumn(&quot;pid&quot;, spark_partition_id())
+         
+dfRep.show</code></pre>
+<pre><code>## +-------+----------+---+
+## |sep_len|   species|pid|
+## +-------+----------+---+
+## |    6.3| virginica|  0|
+## |    6.9|versicolor|  0|
+## |    5.1|    setosa|  0|
+## |    7.1| virginica|  1|
+## |    5.8| virginica|  1|
+## |    4.9|    setosa|  1|
+## |    4.7|    setosa|  2|
+## |    6.4|versicolor|  2|
+## |      7|versicolor|  2|
+## +-------+----------+---+</code></pre>
+<p>Spark created three partitions. However, the data related to species are spread between partitions so that some operations will require to reshuffle the data. For example in the case of aggregation functions, Spark will compute the partial results for each partition and then combine all of them. Let’s use the <code>collect_list</code> function on <code>pids</code> to gather the information of the beginning location of each row, grouped by <code>species</code>.</p>
+<pre class="scala"><code>val dfRepAgg = dfRep
+  .groupBy(&quot;species&quot;)
+  .agg(collect_list(col(&quot;pid&quot;)).alias(&quot;pids&quot;))
+  .withColumn(&quot;pid&quot;, spark_partition_id())
+  
+dfRepAgg.show</code></pre>
+<pre><code>## +----------+---------+---+
+## |   species|     pids|pid|
+## +----------+---------+---+
+## | virginica|[0, 1, 2]| 41|
+## |versicolor|[0, 1, 2]|104|
+## |    setosa|[0, 1, 2]|158|
+## +----------+---------+---+</code></pre>
+<p>In this case, Spark had to perform a lot of operations, because after collecting the values within each partition, he had to combine the partial results to form the final vector. But how do I know what Spark did? There’s an <code>explain</code> method which shows all the step which will be performed to get the final result.</p>
+<pre class="scala"><code>dfRepAgg.explain</code></pre>
+<pre><code>## == Physical Plan ==
+## *(3) Project [species#42, pids#67, SPARK_PARTITION_ID() AS pid#70]
+## +- ObjectHashAggregate(keys=[species#42], functions=[collect_list(pid#46, 0, 0)])
+##    +- Exchange hashpartitioning(species#42, 200)
+##       +- ObjectHashAggregate(keys=[species#42], functions=[partial_collect_list(pid#46, 0, 0)])
+##          +- *(2) Project [species#42, SPARK_PARTITION_ID() AS pid#46]
+##             +- Exchange RoundRobinPartitioning(3)
+##                +- *(1) FileScan csv [species#42] Batched: false, Format: CSV, Location: InMemoryFileIndex[file:/tmp/iris.csv], PartitionFilters: [], PushedFilters: [], ReadSchema: struct&lt;species:string&gt;</code></pre>
+<p>Let’s break the output into pieces (it should be read from the bottom):</p>
+<ul>
+<li><code>FileScan</code> - read csv from disk.</li>
+<li><code>Exchange RoundRobinPartitioning(3)</code> - split the data into three partitions using <code>RoundRobinPartitioning</code> (you can google <code>spark partitioners</code> to get more information). This is the operation defined for <code>dfRep</code>.</li>
+<li><code>ObjectHashAggregate(keys=[species#42], functions=[partial_collect_list(pid#46, 0, 0)])</code> - compute partial results within each partition.</li>
+<li><code>Exchange hashpartitioning(species#42, 200)</code> - repartition the data using hash partitioner, based on the <code>species</code> column. In this step, Spark performs shuffling, and all the partial results from previous step land in the same partition. Note that the data is transferred between nodes. Such transfer might be quite an expensive operation, especially if there’s a lot of partial results.</li>
+<li><code>ObjectHashAggregate(keys=[species#42]], functions=[collect_list(pid#46, 0, 0)])</code> - in this step Spark combines all the partial results into final value.</li>
+</ul>
+<p>I skipped the description of the <code>Project</code> steps because they seems to be unimportant in this case.</p>
+<p>As we can see, there’s a step in which Spark needs to transfer the data between nodes to merge all the partial results. But we can skip this step, by telling Spark how better partition the source data. In this case, we know in advance that all the data related to each species should be in the same partition. We can utilize this knowledge by calling repartition with more arguments:</p>
+<pre class="scala"><code>val dfRepSpec = spark.read
+         .format(&quot;csv&quot;)
+         .option(&quot;header&quot;, &quot;true&quot;)
+         .load(&quot;file:///tmp/iris.csv&quot;)
+         .repartition(3, col(&quot;species&quot;))
+         .withColumn(&quot;pid&quot;, spark_partition_id())
+         
+dfRepSpec.show</code></pre>
+<pre><code>## +-------+----------+---+
+## |sep_len|   species|pid|
+## +-------+----------+---+
+## |    6.3| virginica|  0|
+## |    5.8| virginica|  0|
+## |    7.1| virginica|  0|
+## |    5.1|    setosa|  1|
+## |    4.9|    setosa|  1|
+## |    4.7|    setosa|  1|
+## |      7|versicolor|  2|
+## |    6.4|versicolor|  2|
+## |    6.9|versicolor|  2|
+## +-------+----------+---+</code></pre>
+<p>As you can see, all values that belong to the same species lie in the same partition. Let’s perform the same aggregation operation as before, then examine the result, and the <code>explain</code> output:</p>
+<pre class="scala"><code>val dfRepSpecAgg = dfRepSpec
+  .groupBy(&quot;species&quot;)
+  .agg(collect_list(col(&quot;pid&quot;)).alias(&quot;pids&quot;))
+  .withColumn(&quot;pid&quot;, spark_partition_id())
+
+dfRepSpecAgg.show</code></pre>
+<pre><code>## +----------+---------+---+
+## |   species|     pids|pid|
+## +----------+---------+---+
+## | virginica|[0, 0, 0]|  0|
+## |    setosa|[1, 1, 1]|  1|
+## |versicolor|[2, 2, 2]|  2|
+## +----------+---------+---+</code></pre>
+<pre class="scala"><code>dfRepSpecAgg.explain</code></pre>
+<pre><code>## == Physical Plan ==
+## *(3) Project [species#124, pids#149, SPARK_PARTITION_ID() AS pid#152]
+## +- ObjectHashAggregate(keys=[species#124], functions=[collect_list(pid#128, 0, 0)])
+##    +- ObjectHashAggregate(keys=[species#124], functions=[partial_collect_list(pid#128, 0, 0)])
+##       +- *(2) Project [species#124, SPARK_PARTITION_ID() AS pid#128]
+##          +- Exchange hashpartitioning(species#124, 3)
+##             +- *(1) FileScan csv [species#124] Batched: false, Format: CSV, Location: InMemoryFileIndex[file:/tmp/iris.csv], PartitionFilters: [], PushedFilters: [], ReadSchema: struct&lt;species:string&gt;</code></pre>
+<p>In this case, there’s no <code>RoundRobinPartitioning</code> or <code>Exchange hashpartitioning</code> between <code>ObjectHashAggregate</code> and <code>ObjectHashAggregate</code> because of all values required to operate lie in the same partitions. It will be much faster than the previous solution because there will be no data transfer between nodes.</p>
+<p>We can also check that the results did not change the partitions:</p>
+<pre class="scala"><code>dfRepSpecAgg.withColumn(&quot;pid&quot;, spark_partition_id()).show</code></pre>
+<pre><code>## +----------+---------+---+
+## |   species|     pids|pid|
+## +----------+---------+---+
+## | virginica|[0, 0, 0]|  0|
+## |    setosa|[1, 1, 1]|  1|
+## |versicolor|[2, 2, 2]|  2|
+## +----------+---------+---+</code></pre>
+<p>We can use more than one column to repartition the data. However, keep in mind that sometimes it’s unreasonable to keep all values related to given key in the same partition. For example, if we have a binary key, it would lead us to only two partitions killing all the parallel capabilities. Another situation is the skewed distribution when we have a lot of data for a few keys, and just a bunch of observations for others. It might lead to a situation when all the operation for smaller keys will need to wait to the keys with a bigger number of values to process. So there’s no silver bullet, and the type of partitioning largely depends on the specific situation.</p>
+<div id="parquet" class="section level2">
+<h2>Parquet</h2>
+<p>In the last part of this post, I’ll briefly describe the <code>parqet</code> file, which is a widely used format for storing the data for Spark (it’s much better than csv). It allows saving the partitioned data:</p>
+<pre class="scala"><code>dfRepSpec
+  .select(&quot;sep_len&quot;,&quot;species&quot;)
+  .write
+  .partitionBy(&quot;species&quot;)
+  .parquet(&quot;/tmp/iris&quot;)</code></pre>
+<p>It creates a tree structure, in which the directories are used to separate files for different partitions. Let’s take a look for the created parquet file:</p>
+<pre class="bash"><code>tree /tmp/iris</code></pre>
+<pre><code>## /tmp/iris
+## ├── species=setosa
+## │   └── part-00001-ce7c26e1-7865-4b9f-b532-fdb9a30942dc.c000.snappy.parquet
+## ├── species=versicolor
+## │   └── part-00002-ce7c26e1-7865-4b9f-b532-fdb9a30942dc.c000.snappy.parquet
+## ├── species=virginica
+## │   └── part-00000-ce7c26e1-7865-4b9f-b532-fdb9a30942dc.c000.snappy.parquet
+## └── _SUCCESS
+## 
+## 3 directories, 4 files</code></pre>
+<p>We can load the data, and check that all rows with the same species lie in the same partitions:</p>
+<pre class="scala"><code>val dfPar = spark.read.parquet(&quot;/tmp/iris&quot;).withColumn(&quot;pid&quot;, spark_partition_id())
+dfPar.show</code></pre>
+<pre><code>## +-------+----------+---+
+## |sep_len|   species|pid|
+## +-------+----------+---+
+## |    6.3| virginica|  0|
+## |    5.8| virginica|  0|
+## |    7.1| virginica|  0|
+## |    5.1|    setosa|  1|
+## |    4.9|    setosa|  1|
+## |    4.7|    setosa|  1|
+## |      7|versicolor|  2|
+## |    6.4|versicolor|  2|
+## |    6.9|versicolor|  2|
+## +-------+----------+---+</code></pre>
+<p>Then we can perform aggregation:</p>
+<pre class="scala"><code>val dfParAgg = dfPar
+  .groupBy(&quot;species&quot;)
+  .agg(collect_list(col(&quot;pid&quot;)).alias(&quot;pids&quot;))
+  .withColumn(&quot;pid&quot;, spark_partition_id())
+  
+dfParAgg.show</code></pre>
+<pre><code>## +----------+---------+---+
+## |   species|     pids|pid|
+## +----------+---------+---+
+## | virginica|[0, 0, 0]| 41|
+## |versicolor|[2, 2, 2]|104|
+## |    setosa|[1, 1, 1]|158|
+## +----------+---------+---+</code></pre>
+<p>There’s something strange in the output because the values in <code>pid</code> don’t match the values in <code>pids</code>. It might be a signal that the <code>Spark</code> performed a reshuffling operation, and moved data between nodes. We should check the <code>explain</code> method:</p>
+<pre class="scala"><code>dfParAgg.explain</code></pre>
+<pre><code>## == Physical Plan ==
+## *(2) Project [species#236, pids#258, SPARK_PARTITION_ID() AS pid#261]
+## +- ObjectHashAggregate(keys=[species#236], functions=[collect_list(pid#239, 0, 0)])
+##    +- Exchange hashpartitioning(species#236, 200)
+##       +- ObjectHashAggregate(keys=[species#236], functions=[partial_collect_list(pid#239, 0, 0)])
+##          +- *(1) Project [species#236, SPARK_PARTITION_ID() AS pid#239]
+##             +- *(1) FileScan parquet [sep_len#235,species#236] Batched: true, Format: Parquet, Location: InMemoryFileIndex[file:/tmp/iris], PartitionCount: 3, PartitionFilters: [], PushedFilters: [], ReadSchema: struct&lt;sep_len:string&gt;</code></pre>
+<p>There’s an <code>Exchange hashpartitioning(species#236, 200)</code> operation which is a signal that Spark reshuffled the data. It read the data correctly but did not create a proper partitioner, so Spark treated the data like randomly distributed ones. It can be easily solved by adding the <code>repartition</code> method before aggregation.</p>
+<pre class="scala"><code>val dfParAgg2 = dfPar.repartition(3, col(&quot;species&quot;))
+  .groupBy(&quot;species&quot;)
+  .agg(collect_list(col(&quot;pid&quot;)).alias(&quot;pids&quot;))
+  .withColumn(&quot;pid&quot;, spark_partition_id())
+  
+dfParAgg2.show</code></pre>
+<pre><code>## +----------+---------+---+
+## |   species|     pids|pid|
+## +----------+---------+---+
+## | virginica|[0, 0, 0]|  0|
+## |    setosa|[1, 1, 1]|  1|
+## |versicolor|[2, 2, 2]|  2|
+## +----------+---------+---+</code></pre>
+<p>And the `explain:</p>
+<pre class="scala"><code>dfParAgg2.explain</code></pre>
+<pre><code>## == Physical Plan ==
+## *(2) Project [species#236, pids#308, SPARK_PARTITION_ID() AS pid#311]
+## +- ObjectHashAggregate(keys=[species#236], functions=[collect_list(pid#239, 0, 0)])
+##    +- ObjectHashAggregate(keys=[species#236], functions=[partial_collect_list(pid#239, 0, 0)])
+##       +- Exchange hashpartitioning(species#236, 3)
+##          +- *(1) Project [species#236, SPARK_PARTITION_ID() AS pid#239]
+##             +- *(1) FileScan parquet [sep_len#235,species#236] Batched: true, Format: Parquet, Location: InMemoryFileIndex[file:/tmp/iris], PartitionCount: 3, PartitionFilters: [], PushedFilters: [], ReadSchema: struct&lt;sep_len:string&gt;</code></pre>
+<p>Note that <code>Exchange hashpartitioning</code> between <code>partial_collect_list</code> and <code>collect_list</code> is now gone, so everything should be alright.</p>
+<p>I wrote the number of partitions by hand (3), but usually, it’s not so easy to count them, but you can always use <code>df.rdd.getNumPartitions</code> to get their number. So the final code would be:</p>
+<pre class="scala"><code>val dfParAgg3 = dfPar.repartition(dfPar.rdd.getNumPartitions, col(&quot;species&quot;))
+  .groupBy(&quot;species&quot;)
+  .agg(collect_list(col(&quot;pid&quot;)).alias(&quot;pids&quot;))
+  .withColumn(&quot;pid&quot;, spark_partition_id())</code></pre>
+</div>
+<div id="summary" class="section level2">
+<h2>Summary</h2>
+<p>In this post, I briefly showed how to repartition the data to avoid exchanging the information between nodes usually is very costly, and has a significant impact on the performance of the Spark application. Of course, I did not cover all possible topics and caveats. For more information you can check:</p>
+<ul>
+<li><a href="https://virtuslab.com/blog/spark-sql-hood-part-i/" class="uri">https://virtuslab.com/blog/spark-sql-hood-part-i/</a></li>
+<li><a href="http://blog.madhukaraphatak.com/introduction-to-spark-two-part-6/" class="uri">http://blog.madhukaraphatak.com/introduction-to-spark-two-part-6/</a></li>
+<li><a href="https://medium.com/@wx.london.cun/simple-queries-in-spark-catalyst-optimisation-2-join-and-aggregation-c03f07a1dda8" class="uri">https://medium.com/@wx.london.cun/simple-queries-in-spark-catalyst-optimisation-2-join-and-aggregation-c03f07a1dda8</a></li>
+<li><a href="https://medium.com/@wx.london.cun/simple-queries-in-spark-catalyst-optimisation-1-5797bb1945bc" class="uri">https://medium.com/@wx.london.cun/simple-queries-in-spark-catalyst-optimisation-1-5797bb1945bc</a></li>
+</ul>
+</div>
+</div>

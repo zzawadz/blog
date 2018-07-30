@@ -47,8 +47,8 @@ knit_engines$set(scala = make_scala_engine())
 So let's test the new engine:
 
 ```{scala}
-val x = 1+1
-val y = 2+2
+val x = 1 + 1
+val y = 2 + 2
 val z = 1 to 3
 ```
 
@@ -58,7 +58,7 @@ And in the next chunk shows that the variables defined in the previous listing a
 z.foreach(println(_))
 ```
 
-It's possible to define more Scala engines, and each will have separated from others (variables won't be shared, and so on). 
+It's possible to define more Scala engines, and each one will be separated from others (variables won't be shared, and so on). 
 Here's the definition of the `scalar2` engine:
 
 ```{r}
@@ -177,9 +177,9 @@ file.copy("../../code/sbt-pack-example/build.sbt", "/tmp/sbt-pack-example/build.
 file.copy("../../code/sbt-pack-example/project/plugins.sbt", "/tmp/sbt-pack-example/project/plugins.sbt")
 ```
 
-```{bash, eval=FALSE}
+```{bash, output='hide'}
 cd /tmp/sbt-pack-example/
-sbt pack
+sbt pack > log.log
 ```
 
 ```{bash}
