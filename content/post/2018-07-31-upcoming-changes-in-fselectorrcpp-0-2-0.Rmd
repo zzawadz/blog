@@ -1,0 +1,132 @@
+---
+title: Upcoming changes in FSelectorRcpp-0.2.0
+author: Zygmunt Zawadzki
+date: '2018-07-31'
+slug: upcoming-changes-in-fselectorrcpp-0-2-0
+tags:
+  - rpkg-FSelectorRcpp
+  - feature-selection
+  - discretization
+---
+
+The main purpose of the FSelectorRcpp package is the feature selection based on the entropy function. However, it also contains a function to discretize continuous variable into nominal attributes, and we decided to slightly change the API related to this functionality, to make it more user-friendly.
+
+The `dev` version can be installed using `devtools`:
+
+```{r, eval = FALSE}
+devtools::install_github("mi2-warsaw/FSelectorRcpp", ref = "dev")
+```
+
+### `discretize` now returns all columns by default.
+
+In the current version available on CRAN, calling `discretize(Species ~ Sepal.Length, iris` return a discretized data frame with only two variables - "Species", and "Sepal.Length", all others are discarded. However, it seems to be more natural to return all columns by default, because it allows to easily chain multiple calls to `discretize` with different methods used for different columns. See the example below:
+
+```{r, echo=FALSE, include=FALSE}
+library(knitr)
+options(max.print = 20)
+opts_chunk$set(message = FALSE)
+```
+
+```{r}
+library(FSelectorRcpp)
+
+# before 0.2.0
+discretize(Species ~ Sepal.Length, iris, all = FALSE)
+
+# After - returns all columns by default:
+discretize(Species ~ Sepal.Length, iris)
+
+library(magrittr)
+
+discData <- iris %>% 
+  discretize(Species ~ Sepal.Length, customBreaksControl(c(0, 5, 7.5, 10))) %>% 
+  discretize(Species ~ Sepal.Width, equalsizeControl(5)) %>%
+  discretize(Species ~ .)
+
+discData
+
+```
+
+### `discretize_transform`
+
+
+We also added a `discretize_transform` which takes a result of the `discretize` function and uses its cutpoints to discretize new data set. It might be useful in the ML pipelines, where you want to apply the same transformations to the train and test sets.
+
+```{r}
+set.seed(123)
+idx <- sort(sample.int(150, 100))
+irisTrain <- iris[idx, ]
+irisTest <- iris[-idx, ]
+
+discTrain <- irisTrain %>% 
+  discretize(Species ~ Sepal.Length, customBreaksControl(c(0, 5, 7.5, 10))) %>% 
+  discretize(Species ~ Sepal.Width, equalsizeControl(5)) %>%
+  discretize(Species ~ .)
+
+discTest <- discretize_transform(discTrain, irisTest)
+
+# levels for both columns are equal
+all.equal(
+  lapply(discTrain, levels),
+  lapply(discTest, levels)
+)
+
+discTrain
+discTest
+```
+
+### `discretize` and `information_gain`
+
+The code below shows how to compare the feature importance of the two discretization methods applied to the same data.  Note that you can discretization using the default method, and then passing the output to the `information_gain` leads to the same result as directly calling `information_gain`, on the data without discretization.
+
+```{r}
+library(dplyr)
+
+discTrainCustom <- irisTrain %>% 
+  discretize(Species ~ Sepal.Length, customBreaksControl(c(0, 5, 7.5, 10))) %>% 
+  discretize(Species ~ Sepal.Width, equalsizeControl(5)) %>%
+  discretize(Species ~ .)
+
+discTrainMdl <- irisTrain %>% discretize(Species ~ .)
+
+custom <- information_gain(Species ~ ., discTrainCustom)
+mdl <- information_gain(Species ~ ., discTrainMdl)
+
+all.equal(
+  information_gain(Species ~ ., discretize(irisTrain, Species ~ .)),
+  information_gain(Species ~ ., discTrainMdl)
+)
+
+custom <- custom %>% rename(custom = importance)
+mdl <- mdl %>% rename(mdl = importance)
+inner_join(mdl, custom, by = "attributes")
+
+```
+
+### `customBreaksControl`
+
+We also added a new `customBreaksControl` method, which allows using your breaks in the `discretize` pipeline. It uses the standard `cut` function with default arguments, so the output is always closed on the right. If you want more flexibility (like custom labels) feel free to fill an issue on the https://github.com/mi2-warsaw/FSelectorRcpp/issues, and we will see what can be done.
+
+```{r plot}
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+br <- customBreaksControl(breaks = c(0, 5, 10, Inf))
+disc <- discretize(iris, Species ~ ., control = br)
+
+gDisc <- gather(disc, key = "Variable", value = "Value", -Species)
+
+ggplot(gDisc) + geom_bar(aes(Value, fill = Species)) + facet_wrap("Variable")
+```
+
+### Summary
+
+We still need to do some works on the upcoming release (e.g., write more tests), but we hope you will find it useful.
+
+For more information on `FSelectorRcpp` you can check:
+
+- http://r-addict.com/2017/01/08/Entropy-Based-Image-Binarization.html
+- http://r-addict.com/2017/03/14/FSelectorRcpp-Release.html
+- http://r-addict.com/2016/06/19/Venn-Diagram-RTCGA-Feature-Selection.html
+- https://cran.r-project.org/web/packages/FSelectorRcpp/vignettes/get_started.html
+- https://cran.r-project.org/web/packages/FSelectorRcpp/vignettes/benchmarks_discretize.html

@@ -1,0 +1,149 @@
+---
+title: Upcoming changes in FSelectorRcpp-0.2.0
+author: Zygmunt Zawadzki
+date: '2018-07-31'
+slug: upcoming-changes-in-fselectorrcpp-0-2-0
+tags:
+  - rpkg-FSelectorRcpp
+  - feature-selection
+  - discretization
+---
+
+
+
+<p>The main purpose of the FSelectorRcpp package is the feature selection based on the entropy function. However, it also contains a function to discretize continuous variable into nominal attributes, and we decided to slightly change the API related to this functionality, to make it more user-friendly.</p>
+<p>The <code>dev</code> version can be installed using <code>devtools</code>:</p>
+<pre class="r"><code>devtools::install_github(&quot;mi2-warsaw/FSelectorRcpp&quot;, ref = &quot;dev&quot;)</code></pre>
+<div id="discretize-now-returns-all-columns-by-default." class="section level3">
+<h3><code>discretize</code> now returns all columns by default.</h3>
+<p>In the current version available on CRAN, calling <code>discretize(Species ~ Sepal.Length, iris</code> return a discretized data frame with only two variables - “Species”, and “Sepal.Length”, all others are discarded. However, it seems to be more natural to return all columns by default, because it allows to easily chain multiple calls to <code>discretize</code> with different methods used for different columns. See the example below:</p>
+<pre class="r"><code>library(FSelectorRcpp)
+
+# before 0.2.0
+discretize(Species ~ Sepal.Length, iris, all = FALSE)</code></pre>
+<pre><code>##        Species Sepal.Length
+## 1       setosa  (-Inf,5.55]
+## 2       setosa  (-Inf,5.55]
+## 3       setosa  (-Inf,5.55]
+## 4       setosa  (-Inf,5.55]
+## 5       setosa  (-Inf,5.55]
+## 6       setosa  (-Inf,5.55]
+## 7       setosa  (-Inf,5.55]
+## 8       setosa  (-Inf,5.55]
+## 9       setosa  (-Inf,5.55]
+## 10      setosa  (-Inf,5.55]
+##  [ reached getOption(&quot;max.print&quot;) -- omitted 140 rows ]</code></pre>
+<pre class="r"><code># After - returns all columns by default:
+discretize(Species ~ Sepal.Length, iris)</code></pre>
+<pre><code>##     Sepal.Length Sepal.Width Petal.Length Petal.Width    Species
+## 1    (-Inf,5.55]         3.5          1.4         0.2     setosa
+## 2    (-Inf,5.55]         3.0          1.4         0.2     setosa
+## 3    (-Inf,5.55]         3.2          1.3         0.2     setosa
+## 4    (-Inf,5.55]         3.1          1.5         0.2     setosa
+##  [ reached getOption(&quot;max.print&quot;) -- omitted 146 rows ]</code></pre>
+<pre class="r"><code>library(magrittr)
+
+discData &lt;- iris %&gt;% 
+  discretize(Species ~ Sepal.Length, customBreaksControl(c(0, 5, 7.5, 10))) %&gt;% 
+  discretize(Species ~ Sepal.Width, equalsizeControl(5)) %&gt;%
+  discretize(Species ~ .)
+
+discData</code></pre>
+<pre><code>##     Sepal.Length Sepal.Width Petal.Length Petal.Width    Species
+## 1        (5,7.5]  (3.4, Inf]  (-Inf,2.45]  (-Inf,0.8]     setosa
+## 2          (0,5]     (3,3.1]  (-Inf,2.45]  (-Inf,0.8]     setosa
+## 3          (0,5]   (3.1,3.4]  (-Inf,2.45]  (-Inf,0.8]     setosa
+## 4          (0,5]   (3.1,3.4]  (-Inf,2.45]  (-Inf,0.8]     setosa
+##  [ reached getOption(&quot;max.print&quot;) -- omitted 146 rows ]</code></pre>
+</div>
+<div id="discretize_transform" class="section level3">
+<h3><code>discretize_transform</code></h3>
+<p>We also added a <code>discretize_transform</code> which takes a result of the <code>discretize</code> function and uses its cutpoints to discretize new data set. It might be useful in the ML pipelines, where you want to apply the same transformations to the train and test sets.</p>
+<pre class="r"><code>set.seed(123)
+idx &lt;- sort(sample.int(150, 100))
+irisTrain &lt;- iris[idx, ]
+irisTest &lt;- iris[-idx, ]
+
+discTrain &lt;- irisTrain %&gt;% 
+  discretize(Species ~ Sepal.Length, customBreaksControl(c(0, 5, 7.5, 10))) %&gt;% 
+  discretize(Species ~ Sepal.Width, equalsizeControl(5)) %&gt;%
+  discretize(Species ~ .)
+
+discTest &lt;- discretize_transform(discTrain, irisTest)
+
+# levels for both columns are equal
+all.equal(
+  lapply(discTrain, levels),
+  lapply(discTest, levels)
+)</code></pre>
+<pre><code>## [1] TRUE</code></pre>
+<pre class="r"><code>discTrain</code></pre>
+<pre><code>##     Sepal.Length Sepal.Width Petal.Length Petal.Width    Species
+## 1        (5,7.5]  (3.4, Inf]   (-Inf,2.6]  (-Inf,0.8]     setosa
+## 3          (0,5]   (3.2,3.4]   (-Inf,2.6]  (-Inf,0.8]     setosa
+## 5          (0,5]  (3.4, Inf]   (-Inf,2.6]  (-Inf,0.8]     setosa
+## 6        (5,7.5]  (3.4, Inf]   (-Inf,2.6]  (-Inf,0.8]     setosa
+##  [ reached getOption(&quot;max.print&quot;) -- omitted 96 rows ]</code></pre>
+<pre class="r"><code>discTest</code></pre>
+<pre><code>##     Sepal.Length Sepal.Width Petal.Length Petal.Width    Species
+## 2          (0,5]    (2.75,3]   (-Inf,2.6]  (-Inf,0.8]     setosa
+## 4          (0,5]     (3,3.2]   (-Inf,2.6]  (-Inf,0.8]     setosa
+## 10         (0,5]     (3,3.2]   (-Inf,2.6]  (-Inf,0.8]     setosa
+## 13         (0,5]    (2.75,3]   (-Inf,2.6]  (-Inf,0.8]     setosa
+##  [ reached getOption(&quot;max.print&quot;) -- omitted 46 rows ]</code></pre>
+</div>
+<div id="discretize-and-information_gain" class="section level3">
+<h3><code>discretize</code> and <code>information_gain</code></h3>
+<p>The code below shows how to compare the feature importance of the two discretization methods applied to the same data. Note that you can discretization using the default method, and then passing the output to the <code>information_gain</code> leads to the same result as directly calling <code>information_gain</code>, on the data without discretization.</p>
+<pre class="r"><code>library(dplyr)
+
+discTrainCustom &lt;- irisTrain %&gt;% 
+  discretize(Species ~ Sepal.Length, customBreaksControl(c(0, 5, 7.5, 10))) %&gt;% 
+  discretize(Species ~ Sepal.Width, equalsizeControl(5)) %&gt;%
+  discretize(Species ~ .)
+
+discTrainMdl &lt;- irisTrain %&gt;% discretize(Species ~ .)
+
+custom &lt;- information_gain(Species ~ ., discTrainCustom)
+mdl &lt;- information_gain(Species ~ ., discTrainMdl)
+
+all.equal(
+  information_gain(Species ~ ., discretize(irisTrain, Species ~ .)),
+  information_gain(Species ~ ., discTrainMdl)
+)</code></pre>
+<pre><code>## [1] TRUE</code></pre>
+<pre class="r"><code>custom &lt;- custom %&gt;% rename(custom = importance)
+mdl &lt;- mdl %&gt;% rename(mdl = importance)
+inner_join(mdl, custom, by = &quot;attributes&quot;)</code></pre>
+<pre><code>##     attributes       mdl    custom
+## 1 Sepal.Length 0.4340278 0.2368476
+## 2  Sepal.Width 0.2333229 0.3301300
+## 3 Petal.Length 0.9934589 0.9934589
+## 4  Petal.Width 0.9520131 0.9520131</code></pre>
+</div>
+<div id="custombreakscontrol" class="section level3">
+<h3><code>customBreaksControl</code></h3>
+<p>We also added a new <code>customBreaksControl</code> method, which allows using your breaks in the <code>discretize</code> pipeline. It uses the standard <code>cut</code> function with default arguments, so the output is always closed on the right. If you want more flexibility (like custom labels) feel free to fill an issue on the <a href="https://github.com/mi2-warsaw/FSelectorRcpp/issues" class="uri">https://github.com/mi2-warsaw/FSelectorRcpp/issues</a>, and we will see what can be done.</p>
+<pre class="r"><code>library(ggplot2)
+library(tidyr)
+library(dplyr)
+br &lt;- customBreaksControl(breaks = c(0, 5, 10, Inf))
+disc &lt;- discretize(iris, Species ~ ., control = br)
+
+gDisc &lt;- gather(disc, key = &quot;Variable&quot;, value = &quot;Value&quot;, -Species)
+
+ggplot(gDisc) + geom_bar(aes(Value, fill = Species)) + facet_wrap(&quot;Variable&quot;)</code></pre>
+<p><img src="/post/2018-07-31-upcoming-changes-in-fselectorrcpp-0-2-0_files/figure-html/plot-1.png" width="672" /></p>
+</div>
+<div id="summary" class="section level3">
+<h3>Summary</h3>
+<p>We still need to do some works on the upcoming release (e.g., write more tests), but we hope you will find it useful.</p>
+<p>For more information on <code>FSelectorRcpp</code> you can check:</p>
+<ul>
+<li><a href="http://r-addict.com/2017/01/08/Entropy-Based-Image-Binarization.html" class="uri">http://r-addict.com/2017/01/08/Entropy-Based-Image-Binarization.html</a></li>
+<li><a href="http://r-addict.com/2017/03/14/FSelectorRcpp-Release.html" class="uri">http://r-addict.com/2017/03/14/FSelectorRcpp-Release.html</a></li>
+<li><a href="http://r-addict.com/2016/06/19/Venn-Diagram-RTCGA-Feature-Selection.html" class="uri">http://r-addict.com/2016/06/19/Venn-Diagram-RTCGA-Feature-Selection.html</a></li>
+<li><a href="https://cran.r-project.org/web/packages/FSelectorRcpp/vignettes/get_started.html" class="uri">https://cran.r-project.org/web/packages/FSelectorRcpp/vignettes/get_started.html</a></li>
+<li><a href="https://cran.r-project.org/web/packages/FSelectorRcpp/vignettes/benchmarks_discretize.html" class="uri">https://cran.r-project.org/web/packages/FSelectorRcpp/vignettes/benchmarks_discretize.html</a></li>
+</ul>
+</div>
