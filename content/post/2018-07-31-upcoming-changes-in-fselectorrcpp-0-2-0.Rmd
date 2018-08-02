@@ -11,11 +11,17 @@ tags:
 
 The main purpose of the FSelectorRcpp package is the feature selection based on the entropy function. However, it also contains a function to discretize continuous variable into nominal attributes, and we decided to slightly change the API related to this functionality, to make it more user-friendly.
 
-The `dev` version can be installed using `devtools`:
+##### EDIT: Updated version (0.2.1) is on CRAN. It can be installed using:
+```{r, eval=FALSE}
+`install.packages("FSelectorRcpp")`.
+```
+
+<s>The `dev` version can be installed using `devtools`:
 
 ```{r, eval = FALSE}
 devtools::install_github("mi2-warsaw/FSelectorRcpp", ref = "dev")
 ```
+ </s>
 
 ### `discretize` now returns all columns by default.
 

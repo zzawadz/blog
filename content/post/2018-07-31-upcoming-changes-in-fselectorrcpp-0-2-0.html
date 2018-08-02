@@ -12,8 +12,13 @@ tags:
 
 
 <p>The main purpose of the FSelectorRcpp package is the feature selection based on the entropy function. However, it also contains a function to discretize continuous variable into nominal attributes, and we decided to slightly change the API related to this functionality, to make it more user-friendly.</p>
-<p>The <code>dev</code> version can be installed using <code>devtools</code>:</p>
+<div id="edit-updated-version-0.2.1-is-on-cran.-it-can-be-installed-using" class="section level5">
+<h5>EDIT: Updated version (0.2.1) is on CRAN. It can be installed using:</h5>
+<pre class="r"><code>`install.packages(&quot;FSelectorRcpp&quot;)`.</code></pre>
+<p><s>The <code>dev</code> version can be installed using <code>devtools</code>:</p>
 <pre class="r"><code>devtools::install_github(&quot;mi2-warsaw/FSelectorRcpp&quot;, ref = &quot;dev&quot;)</code></pre>
+<p></s></p>
+</div>
 <div id="discretize-now-returns-all-columns-by-default." class="section level3">
 <h3><code>discretize</code> now returns all columns by default.</h3>
 <p>In the current version available on CRAN, calling <code>discretize(Species ~ Sepal.Length, iris</code> return a discretized data frame with only two variables - “Species”, and “Sepal.Length”, all others are discarded. However, it seems to be more natural to return all columns by default, because it allows to easily chain multiple calls to <code>discretize</code> with different methods used for different columns. See the example below:</p>
