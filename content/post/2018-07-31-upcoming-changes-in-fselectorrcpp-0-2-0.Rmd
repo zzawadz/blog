@@ -13,7 +13,7 @@ The main purpose of the FSelectorRcpp package is the feature selection based on 
 
 ##### EDIT: Updated version (0.2.1) is on CRAN. It can be installed using:
 ```{r, eval=FALSE}
-`install.packages("FSelectorRcpp")`.
+install.packages("FSelectorRcpp")
 ```
 
 <s>The `dev` version can be installed using `devtools`:
