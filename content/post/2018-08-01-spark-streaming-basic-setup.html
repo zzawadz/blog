@@ -1,0 +1,195 @@
+---
+title: Spark Streaming - basic setup
+author: Zygmunt Zawadzki
+date: '2018-08-01'
+slug: spark-streaming-basic-setup
+tags: 
+  - spark-streaming
+  - sbt
+  - rpkg-knitr
+---
+
+
+
+<p>Streaming data is quite a hot topic right now, so I decided to write something on this topic on my blog. I’m new in that area, but I don’t think this is much different than standard batch processing. Of course, I’m more focused on building models and other ML stuff, not all the administration things, like setting up Kafka, making everything fault tolerant, etc.</p>
+<p>In this post, I’ll describe a very basic app, not very different than the one described in the <a href="https://spark.apache.org/docs/latest/streaming-programming-guide.html" class="uri">https://spark.apache.org/docs/latest/streaming-programming-guide.html</a> (original code is here: <a href="https://github.com/apache/spark/blob/v2.3.1/examples/src/main/scala/org/apache/spark/examples/streaming/NetworkWordCount.scala" class="uri">https://github.com/apache/spark/blob/v2.3.1/examples/src/main/scala/org/apache/spark/examples/streaming/NetworkWordCount.scala</a>).</p>
+<p>However, this post will serve me as a template for future posts. As I mentioned earlier, I use <code>blogdown</code> to render the output of my posts, so if you are on Linux (preferably Ubuntu), and you have R installed, you should be able to reproduce everything (some values may vary, because of the streaming component which might be dependent on the Spark’s startup time).</p>
+<p>In this post, I will be using <code>zstatUtils</code> package, which can be found on my Github (<a href="https://github.com/zzawadz/zstatUtils" class="uri">https://github.com/zzawadz/zstatUtils</a>). It contains a few functions, which are useful, for working with Scala in <code>kntir</code> and <code>rmarkdown</code>. To install the package, you can use:</p>
+<pre class="r"><code>devtools::install_github(&quot;zzawadz/zstatUtils&quot;)</code></pre>
+<div id="setting-up-the-scala-engine" class="section level2">
+<h2>Setting up the scala engine</h2>
+<p>Quite recently I wrote a blog post about creating a Scala engine for knitr. It was not economical to include this code in every post, so I moved it into a package. I also realized, that even creating an sbt project to access all necessary JAR files can be integrated into this package. To automate everything I created an <code>sbt</code> engine, which can download dependencies from maven, and create proper <code>scala</code> engine. To make it work you need to use <code>make_sbt_engine</code> function like in the chunk below, and then, create two chunks, one with required plugins (<code>sbt-pack</code> is required), and the second one is a standard <code>build.sbt</code> (however, it must contain a line <code>enablePlugins(PackPlugin)</code>).</p>
+<pre class="r"><code>library(zstatUtils)
+library(knitr)
+# ~/spark-streaming-basic-setup - there the project will be created
+knitr::knit_engines$set(sbt = make_sbt_engine(&quot;~/spark-streaming-basic-setup&quot;))</code></pre>
+<p>The first chunk plugins.sbt must contain at least those two lines - <code>// plugins.sbt</code> is used by <code>sbt</code> engine to determine that it’s this kind of a file. <code>addSbtPlugin(&quot;org.xerial.sbt&quot; % &quot;sbt-pack&quot; % &quot;0.11&quot;)</code> is a <code>sbt</code> plugin, which allows to easily create a directory with all JARs required by the project. In the future versions, it will be added by default, but now its required.</p>
+<pre class="sbt"><code>// plugins.sbt
+addSbtPlugin(&quot;org.xerial.sbt&quot; % &quot;sbt-pack&quot; % &quot;0.11&quot;)</code></pre>
+<pre><code>## plugins.sbt created</code></pre>
+<p>The second <code>sbt</code> chunk must contain a line <code>// build.sbt</code>. It is also used by the <code>sbt</code> engine to check the kind of the file, the second obligatory line <code>enablePlugins(PackPlugin)</code> enables <code>sbt-pack</code> plugin. All other lines are the standard description of <code>sbt</code> dependencies. Note that executing this chunk for the first time might take a lot of time because <code>sbt</code> needs to download everything from the remote server. All subsequent runs should be much faster (in fact I cache the content of <code>plugins.sbt</code> and <code>build.sbt</code>, so if there’s no change in those chunks, the <code>sbt</code> won’t be called).</p>
+<pre class="sbt"><code>// build.sbt
+scalaVersion := &quot;2.11.12&quot;
+libraryDependencies += &quot;org.apache.spark&quot; %% &quot;spark-core&quot; % &quot;2.3.0&quot;
+libraryDependencies += &quot;org.apache.spark&quot; %% &quot;spark-sql&quot; % &quot;2.3.0&quot;
+libraryDependencies += &quot;org.apache.spark&quot; % &quot;spark-streaming_2.11&quot; % &quot;2.3.0&quot;
+enablePlugins(PackPlugin)</code></pre>
+<pre><code>## build.sbt created
+## Some jars:
+## - activation-1.1.1.jar
+## - aircompressor-0.8.jar
+## - antlr4-runtime-4.7.jar
+## - aopalliance-1.0.jar
+## - aopalliance-repackaged-2.4.0-b34.jar
+## - apacheds-i18n-2.0.0-M15.jar</code></pre>
+<p>After the <code>sbt</code> chunk with build information, the <code>Scala</code> engine is set up automatically.</p>
+<pre class="scala"><code>println(1 + 1)
+println(&quot;Hello world!&quot;)</code></pre>
+<pre><code>## 2
+## Hello world!</code></pre>
+</div>
+<div id="prepare-some-data-for-the-spark-streaming." class="section level2">
+<h2>Prepare some data for the Spark Streaming.</h2>
+<p>There’s time for the hardest part. In the Spark Streaming Programming Guide (<a href="https://spark.apache.org/docs/latest/streaming-programming-guide.html" class="uri">https://spark.apache.org/docs/latest/streaming-programming-guide.html</a>), they wrote, that a Netcat can be used to stream your data into the application. However, if you pipe the file into Netcat, it will send everything in one go. It is not something that anyone would want in a context of a streaming application, where the data should be streamed continuously. Fortunately, there’s a great tool available for bash, called <code>pv</code>. It allows limiting the amount of data sent per second. Because of the quite linear nature of <code>Rmarkdown</code> documents, I cannot start the streaming process at the same time as Spark app, so I decided to start the Netcat (<code>nc</code>) with a very limited transfer, and then run Spark. Some that will be lost, because it will be streamed during Sparks startup, but in this case, it’s not so important.</p>
+<p>So let’s prepare some data in R. In every line of a file used for streaming, there will be a few words from “Lorem ipsum dolor sit amet consectetur adipiscing elit”. Then I will start Netcat with <code>pv</code> using R’s <code>system</code> function. I tried to use <code>knitr</code>’s <code>bash</code> chunk, but it creates a blocking process, and I don’t want to wait to the end of stream (if you want to reproduce this example in the terminal, you can just run <code>pv -L4000 /tmp/lorem.txt | nc -lN localhost 9998</code> in another window) ;)</p>
+<pre class="r"><code>set.seed(123)
+lorem &lt;- &quot;Lorem ipsum dolor sit amet consectetur adipiscing elit&quot;
+lorem &lt;- tolower(lorem)
+lorem &lt;- strsplit(lorem, split = &quot; &quot;)[[1]]
+lorem &lt;- replicate(1000, paste(sample(lorem, 30, replace = TRUE), collapse = &quot; &quot;))
+cat(lorem, file = &quot;/tmp/lorem.txt&quot;, sep = &quot;\n&quot;)
+
+system(&quot;pv -L4000 /tmp/lorem.txt | nc -lN localhost 9998&quot;, wait = FALSE)</code></pre>
+<p>Now let’s build the application for counting the number of words occurrences in the stream.</p>
+<p>I create two <code>DStream</code> objects. First <code>wordCounts</code> counts the number of unique words in a given time and the second <code>wordsInLine</code> is a number of words in the transferred lines (it should always be equal to 30 because each line of <code>/tmp/lorem.txt</code> contains 30 words).</p>
+<p>I know that <code>wordCounts</code> and <code>wordsInLine</code> could be defined based on one <code>DStream</code>, but I kept them separately to make this example more close to the one from the programming guide.</p>
+<p>There’s one also one thing, which must be described. I add some commented code containing a <code>Timer</code> object <code>t</code>. I used it inside <code>spark-shell</code> to terminate the streaming process after some time. Without it works continuously. However, in the <code>Rmarkdown</code> it’s not required.</p>
+<pre class="scala"><code>import org.apache.spark.sql.SparkSession
+import org.apache.spark.storage.StorageLevel
+import org.apache.spark.streaming.{Seconds, StreamingContext}
+
+val spark = SparkSession.builder.master(&quot;local[*]&quot;)
+              .appName(&quot;Simple Application&quot;)
+              .getOrCreate()
+
+val ssc = new StreamingContext(spark.sparkContext, Seconds(2))
+val lines = ssc.socketTextStream(&quot;localhost&quot;, 9998, StorageLevel.MEMORY_AND_DISK_SER)
+val words = lines.flatMap(_.split(&quot; &quot;))
+val wordCounts = words.map(x =&gt; (x, 1)).reduceByKey(_ + _)
+val wordsInLine = lines.map(x =&gt; (x.split(&quot; &quot;).size, 1)).reduceByKey(_ + _)
+wordCounts.print()
+wordsInLine.print()
+
+/*
+// for spark-shell
+import java.util.Timer
+import java.util.TimerTask  
+  
+val t = new java.util.Timer() 
+val task = new java.util.TimerTask {
+  def run() = {
+    ssc.stop()
+    t.cancel()
+  }
+}
+t.schedule(task, 10000L, 1000L)
+*/
+
+ssc.start()
+ssc.awaitTerminationOrTimeout(10000L)</code></pre>
+<pre><code>## -------------------------------------------
+## Time: 1533196712000 ms
+## -------------------------------------------
+## (consectetur,307)
+## (elit,290)
+## (adipiscing,317)
+## (amet,311)
+## (ipsum,317)
+## (dolor,300)
+## (sit,331)
+## (lorem,317)
+## 
+## -------------------------------------------
+## Time: 1533196712000 ms
+## -------------------------------------------
+## (30,83)
+## 
+## -------------------------------------------
+## Time: 1533196714000 ms
+## -------------------------------------------
+## (consectetur,158)
+## (elit,135)
+## (adipiscing,150)
+## (amet,138)
+## (ipsum,143)
+## (dolor,123)
+## (sit,159)
+## (lorem,134)
+## 
+## -------------------------------------------
+## Time: 1533196714000 ms
+## -------------------------------------------
+## (30,38)
+## 
+## -------------------------------------------
+## Time: 1533196716000 ms
+## -------------------------------------------
+## (consectetur,149)
+## (elit,141)
+## (adipiscing,149)
+## (amet,146)
+## (ipsum,151)
+## (dolor,150)
+## (sit,141)
+## (lorem,143)
+## 
+## -------------------------------------------
+## Time: 1533196716000 ms
+## -------------------------------------------
+## (30,39)
+## 
+## -------------------------------------------
+## Time: 1533196718000 ms
+## -------------------------------------------
+## (consectetur,133)
+## (elit,144)
+## (adipiscing,147)
+## (amet,141)
+## (ipsum,132)
+## (dolor,159)
+## (sit,174)
+## (lorem,140)
+## 
+## -------------------------------------------
+## Time: 1533196718000 ms
+## -------------------------------------------
+## (30,39)
+## 
+## -------------------------------------------
+## Time: 1533196720000 ms
+## -------------------------------------------
+## (consectetur,149)
+## (elit,139)
+## (adipiscing,141)
+## (amet,143)
+## (ipsum,134)
+## (dolor,142)
+## (sit,173)
+## (lorem,149)
+## 
+## -------------------------------------------
+## Time: 1533196720000 ms
+## -------------------------------------------
+## (30,39)</code></pre>
+</div>
+<div id="summary" class="section level2">
+<h2>Summary</h2>
+<p>In this post, I showed a basic setup for running Spark Streaming application inside a <code>Rmarkdown</code> document. It will serve as a starting point for other posts on this topic. I think that the most crucial takeaway is the usage of <code>pv</code> to limit the number of data send in one go to the Netcat, which allows simulating the stream without setting up <code>Kafka</code> or other more complicated programs.</p>
+</div>
+<div id="resources" class="section level1">
+<h1>Resources</h1>
+<ul>
+<li><a href="https://spark.apache.org/docs/latest/streaming-programming-guide.html" class="uri">https://spark.apache.org/docs/latest/streaming-programming-guide.html</a></li>
+<li><a href="https://linux.die.net/man/1/pv" class="uri">https://linux.die.net/man/1/pv</a></li>
+</ul>
+</div>
