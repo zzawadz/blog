@@ -1,0 +1,346 @@
+---
+title: Spark Streaming and Mllib
+author: Zygmunt Zawadzki
+date: '2018-08-03'
+slug: spark-streaming-ml
+tags: 
+  - spark-streaming
+  - sbt
+  - spark-mllib
+---
+
+
+
+<p>In my first <a href="https://www.zstat.pl/2018/08/01/spark-streaming-basic-setup/">post on Spark Streaming</a>, I described how to use Netcast to emulate incoming stream. But later I found <a href="https://stackoverflow.com/questions/33281723/programatically-creating-dstreams-in-apache-spark">this question on StackOverflow</a>. In one of the answer, there’s a piece of code which shows how to emulate incoming stream programmatically, without external tools like <code>Netcat</code>, it makes life much more comfortable.</p>
+<p>In this post, I describe how to fit a model using Spark’s <code>MLlib</code>, and then use it on the incoming data, and save the result in a parquet file.</p>
+<p>As before, this post is self-contained as much as possible. It uses <code>zstatUtils</code> package to render all the code chunks. Unfortunately, there’s no full documentation on this package, because it’s still evolving, and I’m continually adding new functionalities. The package can be download from Github using the following code:</p>
+<pre class="r"><code>devtools::install_github(&quot;zzawadz/zstatUtils&quot;)</code></pre>
+<pre class="r"><code>library(zstatUtils)
+library(knitr)
+# ~/spark-streaming-basic-setup - there the project will be created
+knitr::knit_engines$set(sbt = make_sbt_engine(&quot;~/spark-streaming-basic-ml&quot;))</code></pre>
+<p>Let’s start with creating the <code>sbt</code> project using <code>zstatUtils</code> package (more on that <a href="https://www.zstat.pl/2018/08/01/spark-streaming-basic-setup/">in the previous post</a>):</p>
+<pre class="sbt"><code>// plugins.sbt
+addSbtPlugin(&quot;org.xerial.sbt&quot; % &quot;sbt-pack&quot; % &quot;0.11&quot;)</code></pre>
+<pre><code>## plugins.sbt created</code></pre>
+<pre class="sbt"><code>// build.sbt
+scalaVersion := &quot;2.11.12&quot;
+libraryDependencies += &quot;org.apache.spark&quot; %% &quot;spark-core&quot; % &quot;2.3.1&quot;
+libraryDependencies += &quot;org.apache.spark&quot; %% &quot;spark-sql&quot; % &quot;2.3.1&quot;
+libraryDependencies += &quot;org.apache.spark&quot; % &quot;spark-streaming_2.11&quot; % &quot;2.3.1&quot;
+libraryDependencies += &quot;org.apache.spark&quot; %% &quot;spark-mllib&quot; % &quot;2.3.1&quot;
+
+enablePlugins(PackPlugin)</code></pre>
+<pre><code>## build.sbt created
+## Some jars:
+## - activation-1.1.1.jar
+## - aircompressor-0.8.jar
+## - antlr4-runtime-4.7.jar
+## - aopalliance-1.0.jar
+## - aopalliance-repackaged-2.4.0-b34.jar
+## - apacheds-i18n-2.0.0-M15.jar</code></pre>
+<div id="prepare-some-data-for-the-spark-streaming." class="section level3">
+<h3>Prepare some data for the Spark Streaming.</h3>
+<p>So let’s prepare some data for Spark Streaming. I will use the immortal iris data set. I’ll only replace the dots in column names with underscores. Then, I’m saving everything in a csv file.</p>
+<pre class="r"><code>set.seed(123)
+colnames(iris) &lt;- gsub(tolower(colnames(iris)), pattern = &quot;\\.&quot;, replacement = &quot;_&quot;)
+write.csv(iris, file = &quot;/tmp/iris.csv&quot;, row.names = FALSE)</code></pre>
+<p>Then I can move to Spark, set up all the imports and start Spark session.</p>
+<pre class="scala"><code>import org.apache.spark.storage.StorageLevel
+import org.apache.spark.streaming.{Seconds, StreamingContext}
+import org.apache.spark.sql.Row
+import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.functions.collect_list
+import org.apache.spark.sql.functions._
+import org.apache.spark.sql.SparkSession
+import org.apache.spark.ml.Pipeline
+import org.apache.spark.ml.classification.{RandomForestClassificationModel, RandomForestClassifier}
+import org.apache.spark.ml.evaluation.MulticlassClassificationEvaluator
+import org.apache.spark.ml.feature.VectorAssembler
+import scala.collection.mutable.Queue
+import org.apache.spark.rdd.RDD
+import org.apache.spark.streaming.dstream.InputDStream
+import org.apache.spark.ml.feature.{IndexToString, StringIndexer}
+
+val spark = SparkSession.builder.master(&quot;local[*]&quot;)
+              .appName(&quot;Simple Application&quot;)
+              .getOrCreate()</code></pre>
+<p>Next, I’m reading the csv file into spark. For some reason, Spark treats all the column as strings, so I’m casting them using <code>selectExpr</code> method (it’s convenient tool because it allows using a straightforward SQL query to extract or transform data).</p>
+<pre class="scala"><code>val iris = spark.read
+         .format(&quot;csv&quot;)
+         .option(&quot;header&quot;, &quot;true&quot;)
+         .load(&quot;file:///tmp/iris.csv&quot;)
+         .repartition(3, col(&quot;species&quot;))
+         .selectExpr(
+           &quot;CAST(sepal_length as double)&quot;,
+           &quot;CAST(sepal_width as double)&quot;,
+           &quot;CAST(petal_length as double)&quot;,
+           &quot;CAST(petal_width as double)&quot;,
+           &quot;species&quot;
+          )
+
+iris.show(5, false)</code></pre>
+<pre><code>## +------------+-----------+------------+-----------+---------+
+## |sepal_length|sepal_width|petal_length|petal_width|species  |
+## +------------+-----------+------------+-----------+---------+
+## |6.3         |3.3        |6.0         |2.5        |virginica|
+## |5.8         |2.7        |5.1         |1.9        |virginica|
+## |7.1         |3.0        |5.9         |2.1        |virginica|
+## |6.3         |2.9        |5.6         |1.8        |virginica|
+## |6.5         |3.0        |5.8         |2.2        |virginica|
+## +------------+-----------+------------+-----------+---------+
+## only showing top 5 rows</code></pre>
+<p>Then I had to build an <code>MLlib</code> model. I will use the random forest, but now I need to prepare data for modeling using some transformations. Near all <code>mllib</code> algorithms requires that the data is in one column in the form of a vector. In my case, all features, are in separate columns, so I need to merge them. To do this, I use <code>VectorAssembler</code>. See the example below:</p>
+<pre class="scala"><code>val assembler = new VectorAssembler().
+  setInputCols(Array(&quot;sepal_length&quot;, &quot;sepal_width&quot;, &quot;petal_length&quot;, &quot;petal_width&quot;)).
+  setOutputCol(&quot;features&quot;)
+
+assembler.transform(iris).show(5)</code></pre>
+<pre><code>## +------------+-----------+------------+-----------+---------+-----------------+
+## |sepal_length|sepal_width|petal_length|petal_width|  species|         features|
+## +------------+-----------+------------+-----------+---------+-----------------+
+## |         6.3|        3.3|         6.0|        2.5|virginica|[6.3,3.3,6.0,2.5]|
+## |         5.8|        2.7|         5.1|        1.9|virginica|[5.8,2.7,5.1,1.9]|
+## |         7.1|        3.0|         5.9|        2.1|virginica|[7.1,3.0,5.9,2.1]|
+## |         6.3|        2.9|         5.6|        1.8|virginica|[6.3,2.9,5.6,1.8]|
+## |         6.5|        3.0|         5.8|        2.2|virginica|[6.5,3.0,5.8,2.2]|
+## +------------+-----------+------------+-----------+---------+-----------------+
+## only showing top 5 rows</code></pre>
+<p>Then I need to transform the dependent variable to numeric values. Of course, there’s a utility object for that:</p>
+<pre class="scala"><code>val indexer = new StringIndexer()
+  .setInputCol(&quot;species&quot;)
+  .setOutputCol(&quot;species_idx&quot;)
+  .fit(iris)
+
+indexer.transform(iris).show(5)</code></pre>
+<pre><code>## +------------+-----------+------------+-----------+---------+-----------+
+## |sepal_length|sepal_width|petal_length|petal_width|  species|species_idx|
+## +------------+-----------+------------+-----------+---------+-----------+
+## |         6.3|        3.3|         6.0|        2.5|virginica|        2.0|
+## |         5.8|        2.7|         5.1|        1.9|virginica|        2.0|
+## |         7.1|        3.0|         5.9|        2.1|virginica|        2.0|
+## |         6.3|        2.9|         5.6|        1.8|virginica|        2.0|
+## |         6.5|        3.0|         5.8|        2.2|virginica|        2.0|
+## +------------+-----------+------------+-----------+---------+-----------+
+## only showing top 5 rows</code></pre>
+<p>Because the <code>mllib</code> model returns the output in the form of the numeric value I need to set up one more thing to convert it to the string label:</p>
+<pre class="scala"><code>val labelConverter = new IndexToString()
+  .setInputCol(&quot;prediction&quot;)
+  .setOutputCol(&quot;prediction_label&quot;)
+  .setLabels(indexer.labels)
+
+val idxIris = indexer.transform(iris).withColumn(&quot;prediction&quot;, col(&quot;species_idx&quot;))
+labelConverter.transform(idxIris).select(&quot;species&quot;, &quot;prediction_label&quot;).distinct.show</code></pre>
+<pre><code>## +----------+----------------+
+## |   species|prediction_label|
+## +----------+----------------+
+## | virginica|       virginica|
+## |    setosa|          setosa|
+## |versicolor|      versicolor|
+## +----------+----------------+</code></pre>
+<p>Finally, I can create a Random Forest object and build and fit a pipeline. Note that this is not a tutorial on ML with Spark, so to learn more about this topic like splitting to training and test sets or cross-validation you should consult other resources (<a href="https://spark.apache.org/docs/2.2.0/ml-tuning.html">here</a>, <a href="https://spark.apache.org/docs/2.2.0/ml-pipeline.html">here</a>, and <a href="https://spark.apache.org/docs/2.2.0/ml-guide.html">here</a>).</p>
+<pre class="scala"><code>val rf = new RandomForestClassifier()
+  .setLabelCol(&quot;species_idx&quot;)
+  .setFeaturesCol(&quot;features&quot;)
+  .setNumTrees(10)
+
+val pipeline  = new Pipeline().setStages(Array(assembler, indexer, rf, labelConverter))
+val modelPipe = pipeline.fit(iris)</code></pre>
+<p>A piece of code to show that model works:</p>
+<pre class="scala"><code>modelPipe.transform(iris)
+  .groupBy(&quot;species&quot;, &quot;species_idx&quot;, &quot;prediction&quot;, &quot;prediction_label&quot;)
+  .count
+  .show</code></pre>
+<pre><code>## +----------+-----------+----------+----------------+-----+
+## |   species|species_idx|prediction|prediction_label|count|
+## +----------+-----------+----------+----------------+-----+
+## | virginica|        2.0|       2.0|       virginica|   50|
+## |    setosa|        1.0|       1.0|          setosa|   50|
+## |versicolor|        0.0|       0.0|      versicolor|   49|
+## |versicolor|        0.0|       2.0|       virginica|    1|
+## +----------+-----------+----------+----------------+-----+</code></pre>
+</div>
+<div id="streaming---first-attempt" class="section level3">
+<h3>Streaming - first attempt</h3>
+<p>In the code chunk below I create a Streaming context, and then from <code>Queue</code> I create an <code>InputDStream</code>. It’s an excellent way to simulate the incoming stream because each element added to the <code>inputData</code> is treated as data for next time interval. In the <code>irisStream</code> I transform the input data from strings to the tuple, and then inside <code>foreachRDD</code> I transform it to the data frame, print the output, and save the result into parquet. I think that the <code>foreachRDD</code> is the most crucial function in this code because it does all the interesting job. Note that wrapping the code in <code>foreachRDD</code> allows using standard Spark operations. For more information on <code>foreachRDD</code>, please visit <a href="https://spark.apache.org/docs/latest/streaming-programming-guide.html#design-patterns-for-using-foreachrdd">the Spark Streaming Programming Guide</a>. Note that in the example in the programming guide they added the code to create a SparkSession using <code>val spark = SparkSession.builder.con...</code>, but my code works without it, but it might be important when submitting the code to the cluster using <code>spark-submit</code>.</p>
+<pre class="scala"><code>val ssc = new StreamingContext(spark.sparkContext, Seconds(1))
+
+val inputData: Queue[RDD[String]] = Queue()
+val inputStream: InputDStream[String] = ssc.queueStream(inputData)
+import spark.implicits._
+
+inputData += spark.sparkContext.makeRDD(List(&quot;6.3,2.8,1.1,1.5,\&quot;1\&quot;&quot;, &quot;1.3,1.8,1.1,2.5,\&quot;2\&quot;&quot;)) 
+inputData += spark.sparkContext.makeRDD(List(&quot;2.4,2.8,6.1,1.5,\&quot;3\&quot;&quot;, &quot;2.3,3.8,1.1,5.5,\&quot;4\&quot;&quot;))
+inputData += spark.sparkContext.makeRDD(List(&quot;4.3,2.1,1.1,1.5,\&quot;5\&quot;&quot;, &quot;3.3,5.8,1.1,1.5,\&quot;6\&quot;&quot;))
+
+val irisStream = inputStream.map(x =&gt; {
+  val y = x.split(&quot;,&quot;)
+  (y(0).toDouble, y(1).toDouble, y(2).toDouble, y(3).toDouble, y(4))
+})
+
+irisStream.foreachRDD(rdd =&gt; {
+  
+  val df = rdd.toDF(&quot;sepal_length&quot;, &quot;sepal_width&quot;, &quot;petal_length&quot;, &quot;petal_width&quot;, &quot;id&quot;)
+  df.repartition(1).write.mode(&quot;append&quot;).parquet(&quot;/tmp/iris_stream&quot;)
+  df.show
+  
+})
+
+// stop the StreamingContext after 3.5 seconds
+import java.util.Timer
+import java.util.TimerTask  
+  
+val t = new java.util.Timer() 
+val task = new java.util.TimerTask {
+  def run() = {
+    ssc.stop(false)
+    t.cancel()
+  }
+}
+t.schedule(task, 3500L, 1000L)
+
+ssc.start()</code></pre>
+<pre><code>## +------------+-----------+------------+-----------+---+
+## |sepal_length|sepal_width|petal_length|petal_width| id|
+## +------------+-----------+------------+-----------+---+
+## |         6.3|        2.8|         1.1|        1.5|&quot;1&quot;|
+## |         1.3|        1.8|         1.1|        2.5|&quot;2&quot;|
+## +------------+-----------+------------+-----------+---+
+## 
+## +------------+-----------+------------+-----------+---+
+## |sepal_length|sepal_width|petal_length|petal_width| id|
+## +------------+-----------+------------+-----------+---+
+## |         2.4|        2.8|         6.1|        1.5|&quot;3&quot;|
+## |         2.3|        3.8|         1.1|        5.5|&quot;4&quot;|
+## +------------+-----------+------------+-----------+---+
+## 
+## +------------+-----------+------------+-----------+---+
+## |sepal_length|sepal_width|petal_length|petal_width| id|
+## +------------+-----------+------------+-----------+---+
+## |         4.3|        2.1|         1.1|        1.5|&quot;5&quot;|
+## |         3.3|        5.8|         1.1|        1.5|&quot;6&quot;|
+## +------------+-----------+------------+-----------+---+</code></pre>
+<p>Below I’m verifying that the data was saved to the parquet file, and only one partition was generated for each time interval.</p>
+<pre class="scala"><code>spark.read.parquet(&quot;/tmp/iris_stream&quot;).show</code></pre>
+<pre><code>## +------------+-----------+------------+-----------+---+
+## |sepal_length|sepal_width|petal_length|petal_width| id|
+## +------------+-----------+------------+-----------+---+
+## |         4.3|        2.1|         1.1|        1.5|&quot;5&quot;|
+## |         3.3|        5.8|         1.1|        1.5|&quot;6&quot;|
+## |         6.3|        2.8|         1.1|        1.5|&quot;1&quot;|
+## |         1.3|        1.8|         1.1|        2.5|&quot;2&quot;|
+## |         2.4|        2.8|         6.1|        1.5|&quot;3&quot;|
+## |         2.3|        3.8|         1.1|        5.5|&quot;4&quot;|
+## +------------+-----------+------------+-----------+---+</code></pre>
+<pre class="bash"><code>tree /tmp/iris_stream</code></pre>
+<pre><code>## /tmp/iris_stream
+## ├── part-00000-28aed6cf-ad8c-4862-87c5-adc9f82c0d42-c000.snappy.parquet
+## ├── part-00000-3836779a-5f3e-478a-bd7f-1ba8522d844d-c000.snappy.parquet
+## ├── part-00000-62f96cf5-1d81-4fc5-a1a8-6698332651fe-c000.snappy.parquet
+## └── _SUCCESS
+## 
+## 0 directories, 4 files</code></pre>
+</div>
+<div id="mllib-in-foreachrdd" class="section level3">
+<h3>Mllib in foreachRDD</h3>
+<p>And here’s the final step. Using a fitted <code>Mllib</code> model inside <code>foreachRDD</code> is dead simple because you only needed to add <code>modelPipe.transform(df)</code>, and nothing more. The rest of the code serves only for the formatting purposes.</p>
+<pre class="scala"><code>val ssc = new StreamingContext(spark.sparkContext, Seconds(1))
+val inputData: Queue[RDD[String]] = Queue()
+val inputStream: InputDStream[String] = ssc.queueStream(inputData)
+import spark.implicits._
+
+inputData += spark.sparkContext.makeRDD(List(&quot;6.3,2.8,1.1,1.5,\&quot;1\&quot;&quot;, &quot;1.3,1.8,1.1,2.5,\&quot;2\&quot;&quot;)) 
+inputData += spark.sparkContext.makeRDD(List(&quot;2.4,2.8,6.1,1.5,\&quot;3\&quot;&quot;, &quot;2.3,3.8,1.1,5.5,\&quot;4\&quot;&quot;))
+inputData += spark.sparkContext.makeRDD(List(&quot;4.3,2.1,1.1,1.5,\&quot;5\&quot;&quot;, &quot;3.3,5.8,1.1,1.5,\&quot;6\&quot;&quot;))
+
+val irisStream = inputStream.map(x =&gt; {
+  val y = x.split(&quot;,&quot;)
+  (y(0).toDouble, y(1).toDouble, y(2).toDouble, y(3).toDouble, y(4))
+})
+
+irisStream.foreachRDD(rdd =&gt; {
+  
+  val df = rdd.toDF(&quot;sepal_length&quot;, &quot;sepal_width&quot;, &quot;petal_length&quot;, &quot;petal_width&quot;, &quot;id&quot;)
+  val dfPred = modelPipe.transform(df).select(&quot;id&quot;, &quot;features&quot;, &quot;prediction_label&quot;)
+  dfPred.repartition(1).write.mode(&quot;append&quot;).parquet(&quot;/tmp/iris_stream_prediction&quot;)
+  dfPred.show
+})
+
+import java.util.Timer
+import java.util.TimerTask  
+
+// stop the StreamingContext after 3.5 seconds
+val t = new java.util.Timer() 
+val task = new java.util.TimerTask {
+  def run() = {
+    ssc.stop(false)
+    t.cancel()
+  }
+}
+t.schedule(task, 3500L, 1000L)
+
+ssc.start()</code></pre>
+<pre><code>## +---+-----------------+----------------+
+## | id|         features|prediction_label|
+## +---+-----------------+----------------+
+## |&quot;1&quot;|[6.3,2.8,1.1,1.5]|      versicolor|
+## |&quot;2&quot;|[1.3,1.8,1.1,2.5]|          setosa|
+## +---+-----------------+----------------+
+## 
+## +---+-----------------+----------------+
+## | id|         features|prediction_label|
+## +---+-----------------+----------------+
+## |&quot;3&quot;|[2.4,2.8,6.1,1.5]|       virginica|
+## |&quot;4&quot;|[2.3,3.8,1.1,5.5]|      versicolor|
+## +---+-----------------+----------------+
+## 
+## +---+-----------------+----------------+
+## | id|         features|prediction_label|
+## +---+-----------------+----------------+
+## |&quot;5&quot;|[4.3,2.1,1.1,1.5]|      versicolor|
+## |&quot;6&quot;|[3.3,5.8,1.1,1.5]|      versicolor|
+## +---+-----------------+----------------+
+## 
+## +---+--------+----------------+
+## | id|features|prediction_label|
+## +---+--------+----------------+
+## +---+--------+----------------+</code></pre>
+<p>Check the output:</p>
+<pre class="scala"><code>spark.read.parquet(&quot;/tmp/iris_stream_prediction&quot;).show</code></pre>
+<pre><code>## +---+-----------------+----------------+
+## | id|         features|prediction_label|
+## +---+-----------------+----------------+
+## |&quot;5&quot;|[4.3,2.1,1.1,1.5]|      versicolor|
+## |&quot;6&quot;|[3.3,5.8,1.1,1.5]|      versicolor|
+## |&quot;1&quot;|[6.3,2.8,1.1,1.5]|      versicolor|
+## |&quot;2&quot;|[1.3,1.8,1.1,2.5]|          setosa|
+## |&quot;3&quot;|[2.4,2.8,6.1,1.5]|       virginica|
+## |&quot;4&quot;|[2.3,3.8,1.1,5.5]|      versicolor|
+## +---+-----------------+----------------+</code></pre>
+<pre class="bash"><code>tree /tmp/iris_stream_prediction</code></pre>
+<pre><code>## /tmp/iris_stream_prediction
+## ├── part-00000-4cd6aa20-db22-4231-a507-7cf83350e036-c000.snappy.parquet
+## ├── part-00000-737f41cf-f4a1-4d2b-b018-f6c2ba78a18b-c000.snappy.parquet
+## ├── part-00000-7eec12a8-04ca-4465-8e43-64f4288a174e-c000.snappy.parquet
+## ├── part-00000-8acd06f1-ff30-4f3a-a03d-ea961b5a245f-c000.snappy.parquet
+## └── _SUCCESS
+## 
+## 0 directories, 5 files</code></pre>
+<p>It seems that everything works as expected.</p>
+</div>
+<div id="summary" class="section level3">
+<h3>Summary</h3>
+<p>In this post, I showed the basic integration of the <code>Mllib</code> library and Spark Streaming. They can work together without any major problems. However, I think that for more real words scenarios the approach <a href="https://spark.apache.org/docs/latest/structured-streaming-programming-guide.html">presented here</a> might be more useful and robust. But I need to investigate this:)</p>
+</div>
+<div id="resources" class="section level3">
+<h3>Resources</h3>
+<ul>
+<li><a href="https://www2.eecs.berkeley.edu/Pubs/TechRpts/2012/EECS-2012-259.pdf" class="uri">https://www2.eecs.berkeley.edu/Pubs/TechRpts/2012/EECS-2012-259.pdf</a></li>
+<li><a href="https://spark.apache.org/docs/latest/structured-streaming-programming-guide.html" class="uri">https://spark.apache.org/docs/latest/structured-streaming-programming-guide.html</a></li>
+</ul>
+</div>
+<div id="miscellaneous" class="section level3">
+<h3>Miscellaneous</h3>
+<p>The information below is not related to the Spark itself but to its relation with <code>knitr.</code> You can safely skip this section if you don’t want to create blog posts containing Spark code using <code>blogdown</code>, <code>knitr</code> and <code>zstatUtils</code>.</p>
+<p>It seems that when the chunk containing the Spark Streaming context finishes its work, the Spark Session still has some job to do, but the control is returned to the knitr. It may cause that the chunk will finish, but in the background, Spark will still be producing output. I don’t know how to solve this problem programmatically because <code>ssc.awaitTerminationOrTimeout(timeout)</code> does not work. However, using <code>Sys.sleep(some_time)</code> on the R side, and then reevaluation the scala engine to gather the output works pretty well, so I added a parameter <code>waitForResult=seconds</code> to the Scala’s chunks, which determines the time given to Spark to finish their job. In my case, 10 seconds works pretty well.</p>
+</div>
