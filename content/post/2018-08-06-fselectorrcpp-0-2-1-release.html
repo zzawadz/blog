@@ -1,0 +1,87 @@
+---
+title: FSelectorRcpp 0.2.1 release
+author: Zygmunt Zawadzki
+date: '2018-08-06'
+slug: fselectorrcpp-0-2-1-release
+tags:
+  - rpkg-FSelectorRcpp
+  - r-packages
+---
+
+
+
+<p>New release of FSelectorRcpp (0.2.1) is on CRAN. I described near all the <a href="https://www.zstat.pl/2018/07/31/upcoming-changes-in-fselectorrcpp-0-2-0/">new functionality here</a>. The last thing that we added just before release is an <code>extract_discretize_transformer</code>. It can be used to get a small object from the result of <code>discretize</code> function to transform the new data using estimated cutpoints. See the example below.</p>
+<pre class="r"><code>library(FSelectorRcpp)
+set.seed(123)
+idx &lt;- sort(sample.int(150, 100))
+iris1 &lt;- iris[idx, ]
+iris2 &lt;- iris[-idx, ]
+
+disc &lt;- discretize(Species ~ ., iris1)
+discObj &lt;- extract_discretize_transformer(disc)
+
+# Print the object
+discObj</code></pre>
+<pre><code>## FsDiscretizeTransformer
+## 
+## Cutpoints:
+##   Sepal.Length: -Inf, 5.55, Inf
+##   Sepal.Width: -Inf, 3.15, Inf
+##   Petal.Length: -Inf, 2.6, 4.75, Inf
+##   Petal.Width: -Inf, 0.8, 1.7, Inf
+## 
+## FsDiscretizeTransformer allows to discretize data
+## using discretize_transform(disc, newData) function.</code></pre>
+<pre><code>## Sepal.Length
+
+## Sepal.Width
+
+## Petal.Length
+
+## Petal.Width
+
+## Species</code></pre>
+<pre class="r"><code>head(discretize_transform(discObj, iris2))</code></pre>
+<pre><code>##    Sepal.Length Sepal.Width Petal.Length Petal.Width Species
+## 2   (-Inf,5.55] (-Inf,3.15]   (-Inf,2.6]  (-Inf,0.8]  setosa
+## 4   (-Inf,5.55] (-Inf,3.15]   (-Inf,2.6]  (-Inf,0.8]  setosa
+## 10  (-Inf,5.55] (-Inf,3.15]   (-Inf,2.6]  (-Inf,0.8]  setosa
+## 13  (-Inf,5.55] (-Inf,3.15]   (-Inf,2.6]  (-Inf,0.8]  setosa
+## 19  (5.55, Inf] (3.15, Inf]   (-Inf,2.6]  (-Inf,0.8]  setosa
+## 21  (-Inf,5.55] (3.15, Inf]   (-Inf,2.6]  (-Inf,0.8]  setosa</code></pre>
+<div id="impact-of-the-new-version-on-downloads" class="section level2">
+<h2>Impact of the new version on downloads</h2>
+<p>I’m always curious of the impact of the new release on the number of downloads. It seems that in the case of FSelectorRcpp it is quite an important factor. See the code below. The vertical lines denote new versions.</p>
+<pre class="r"><code>library(crandb)
+library(lubridate)
+library(dplyr)
+library(cranlogs)
+library(ggplot2)
+
+invisible(Sys.setlocale(locale = &quot;en_US.UTF-8&quot;))
+
+pkg &lt;- package(&quot;FSelectorRcpp&quot;, version = &quot;all&quot;)
+newDate &lt;- substring(pkg$timeline[[&quot;0.2.1&quot;]], 1, 10) %&gt;% ymd
+
+
+downloads &lt;- cran_downloads(&quot;FSelectorRcpp&quot;, from = newDate - 5, to = newDate + 3)
+ggplot(downloads) + 
+  geom_line(aes(date, count)) + 
+  ylab(&quot;Downloads&quot;) + xlab(&quot;Date&quot;) + 
+  theme_bw() + 
+  geom_vline(xintercept = newDate, lty = 2, color = &quot;darkblue&quot;)</code></pre>
+<p><img src="/post/2018-08-06-fselectorrcpp-0-2-1-release_files/figure-html/pl1-1.png" width="672" /></p>
+<pre class="r"><code># cumulative downloads
+firstRelease &lt;- pkg$timeline[[1]] %&gt;% substr(1,10) %&gt;% ymd
+allDownloads &lt;- cran_downloads(&quot;FSelectorRcpp&quot;, from = firstRelease, to = newDate + 3)
+allDownloads &lt;- allDownloads %&gt;% mutate(Total = cumsum(count))
+
+newVersions &lt;- pkg$timeline %&gt;% unlist() %&gt;% substr(1,10) %&gt;% ymd
+
+ggplot(allDownloads) + 
+  geom_line(aes(date, Total)) + 
+  ylab(&quot;Downloads&quot;) + xlab(&quot;Date&quot;) + 
+  theme_bw() + 
+  geom_vline(xintercept = newVersions, lty = 2, color = &quot;darkblue&quot;)</code></pre>
+<p><img src="/post/2018-08-06-fselectorrcpp-0-2-1-release_files/figure-html/pl2-1.png" width="672" /></p>
+</div>
