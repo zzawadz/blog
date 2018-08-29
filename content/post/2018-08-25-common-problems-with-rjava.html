@@ -1,0 +1,28 @@
+---
+title: Common problems with rJava
+author: Zygmunt Zawadzki
+date: '2018-08-25'
+slug: common-problems-with-rjava
+tags:
+  - r-rjava
+  - r-administration
+---
+
+
+
+<p>rJava is an essential package because it allows accessing rich Java world. There are at least dozens of packages on CRAN which depends on Java (e.g., the excellent rscala for calling scala code from R). However, sometimes installing rJava might be quite problematic. In this post, I’ll focus on the pitfalls found on Linux/Ubuntu, but if you are on Windows following <a href="https://stackoverflow.com/a/37740631">instructions from here</a>, should solve your problem.</p>
+<div id="r-cmd-javareconf" class="section level2">
+<h2>R CMD javareconf</h2>
+<p>One of the first thing that you should try if you have a problem with rJava is to check if you have java installed on your system, by running <code>java -version</code> in the console. If not you need to install Java JDK (<a href="https://stackoverflow.com/a/1906455" class="uri">https://stackoverflow.com/a/1906455</a> - the difference between JRE and JDK). On Ubuntu, this can be done with <code>sudo apt-get install openjdk-8-jdk</code> (you can replace 8 with the different version of Java). For <a href="https://www.digitalocean.com/community/tutorials/how-to-install-java-with-apt-get-on-ubuntu-16-04">more information please visit this site</a>.</p>
+<p>If you have Java on your machine, you can now run the <code>R CMD javareconf</code> to reconfigure R with it, and from now you should be able to install and use rJava.</p>
+</div>
+<div id="libjvm.so-cannot-open-shared-object-file" class="section level2">
+<h2>libjvm.so: cannot open shared object file</h2>
+<p>Even if the <code>javareconf</code> succeed, there still might be a problem with installing <code>rJava</code>, because there might be a problem with <code>LD_LIBRARY_PATH</code> (a path for shared libraries - <a href="http://tldp.org/HOWTO/Program-Library-HOWTO/shared-libraries.html">more information here</a>). This problem manifests itself through an error containing <code>libjvm.so: cannot open shared object file</code> expression.</p>
+<p>To solve it you need to locate the <code>libjvm.so</code> file. In my case, it was in the <code>/usr/lib/jvm/java-8-oracle/jre/lib/amd64/server</code> directory (note that it’s Oracle JVM, for other Java distribution you should check the subdirectories of the <code>/usr/lib/jvm/</code>). Then you need to add this path to <code>LD_LIBRARY_PATH</code>. A very simple <a href="https://serverfault.com/a/201710">solution is provided here</a>.</p>
+<pre><code># write /usr/lib/jvm/java-8-oracle/jre/lib/amd64/server
+# to file
+vim /etc/ld.so.conf.d/rjava.conf
+sudo ldconfig</code></pre>
+<p>After that everything should work without problems.</p>
+</div>

@@ -1,0 +1,32 @@
+---
+title: Common problems with rJava
+author: Zygmunt Zawadzki
+date: '2018-08-25'
+slug: common-problems-with-rjava
+tags:
+  - r-rjava
+  - r-administration
+---
+
+rJava is an essential package because it allows accessing rich Java world. There are at least dozens of packages on CRAN which depends on Java (e.g., the excellent rscala for calling scala code from R). However, sometimes installing rJava might be quite problematic. In this post, I'll focus on the pitfalls found on Linux/Ubuntu, but if you are on Windows following [instructions from here](https://stackoverflow.com/a/37740631), should solve your problem.
+
+## R CMD javareconf
+
+One of the first thing that you should try if you have a problem with rJava is to check if you have java installed on your system, by running `java -version` in the console. If not you need to install Java JDK (https://stackoverflow.com/a/1906455 - the difference between JRE and JDK). On Ubuntu, this can be done with `sudo apt-get install openjdk-8-jdk` (you can replace 8 with the different version of Java). For [more information please visit this site](https://www.digitalocean.com/community/tutorials/how-to-install-java-with-apt-get-on-ubuntu-16-04).
+
+If you have Java on your machine, you can now run the `R CMD javareconf` to reconfigure R with it, and from now you should be able to install and use rJava.
+
+## libjvm.so: cannot open shared object file
+
+Even if the `javareconf` succeed, there still might be a problem with installing `rJava`, because there might be a problem with `LD_LIBRARY_PATH` (a path for shared libraries - [more information here](http://tldp.org/HOWTO/Program-Library-HOWTO/shared-libraries.html)). This problem manifests itself through an error containing `libjvm.so: cannot open shared object file` expression.
+
+To solve it you need to locate the `libjvm.so` file. In my case, it was in the `/usr/lib/jvm/java-8-oracle/jre/lib/amd64/server` directory  (note that it's Oracle JVM, for other Java distribution you should check the subdirectories of the `/usr/lib/jvm/`). Then you need to add this path to `LD_LIBRARY_PATH`. A very simple [solution is provided here](https://serverfault.com/a/201710).
+
+```
+# write /usr/lib/jvm/java-8-oracle/jre/lib/amd64/server
+# to file
+vim /etc/ld.so.conf.d/rjava.conf
+sudo ldconfig
+```
+
+After that everything should work without problems.
