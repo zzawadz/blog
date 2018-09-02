@@ -1,0 +1,223 @@
+---
+title: Notes on tidyeval
+author: Zygmunt Zawadzki
+date: '2018-09-02'
+slug: dplyr-vs-seplyr
+tags:
+  - rpkg-dplyr
+  - rpkg-seplyr
+  - r-tidyeval
+  - rpkg-wrapr
+  - r-packages
+---
+
+I recently watched the ["Tidy eval: Programming with dplyr, tidyr, and ggplot2"](https://www.rstudio.com/resources/videos/tidy-eval-programming-with-dplyr-tidyr-and-ggplot2/) video. It's an excellent introduction to the concept of the *tidy evaluation*, which is the core concept for programming with `dplyr` and friends.
+
+In this video, Hadley showed on the slide the `grouped_mean` function (12:48). An attempt to implement this functions might be a good exercise in tidy evaluation, and an excellent opportunity to compare this approach with standard evaluation rules provided by the `seplyr` package.
+
+Let's start with the simple example:
+
+```{r, message=FALSE}
+library(dplyr)
+
+mtcars %>% 
+  group_by(cyl) %>% 
+  summarise(mean = mean(hp))
+```
+
+The code below shows the first version of this function (based on the knowledge from the video).
+
+```{r}
+grouped_mean <- function(dt, group, value) {
+  group <- enquo(group)
+  value <- enquo(value)
+  dt %>% 
+    group_by(!!group) %>% 
+    summarise(mean = mean(!!value))
+}
+```
+
+Let's try it:
+
+```{r}
+grouped_mean(mtcars, cyl, hp)
+grouped_mean(mtcars, gear, mpg)
+```
+
+
+But maybe we want to use more than one variable for grouping? This use case [is described here](https://cran.r-project.org/web/packages/dplyr/vignettes/programming.html) in the section "Capturing multiple variables".  So the second version might look like this (I had to change the order of variables):
+
+```{r}
+grouped_mean2 <- function(dt, value, ...) {
+  value <- enquo(value)
+  groups <- quos(...)
+  dt %>% 
+    group_by(!!!groups) %>%
+    summarise(mean = mean(!!value))
+}
+
+grouped_mean2(mtcars, mpg) # without grouping
+grouped_mean2(mtcars, mpg, cyl) # one variable used for grouping
+grouped_mean2(mtcars, mpg, cyl, gear) # two variables
+```
+
+### seplyr
+
+However, we might want to pass the column names as strings, so using the nonstandard evaluation might be a problem here. But there's a `seplyr` package, which provides another interface to dplyr in which you can pass a vector of strings. It works perfectly for grouping, but for other functions like `summarise` or `mutate` it's not as elegant as the tidy solution.
+
+```{r, message=FALSE}
+library(seplyr)
+
+grouped_mean_se <- function(dt, group, value) {
+  # I pass the R code to summarise_se as a string
+  # it's not very elegant:(
+  dt %>% 
+    group_by_se(group) %>%
+    summarise_se(setNames(sprintf("mean(`%s`)", value), "mean"))
+}
+
+grouped_mean_se(mtcars, "cyl", "hp")
+grouped_mean_se(mtcars, "gear", "mpg")
+```
+
+The good thing about this solution is that grouping by multiple columns works without any modifications. See the example below:
+
+```{r}
+grouped_mean_se(mtcars, c("gear", "cyl"), "mpg")
+```
+
+You can use the seplyr approach with tidyeval to make it nicer. Note that `rlang::parse_quosure` works as `enquo`, but extracts the value from the variable.
+
+```{r}
+grouped_mean_se2 <- function(dt, group, value) {
+  value <- rlang::parse_quosure(value)
+  dt %>% 
+    group_by_se(group) %>%
+    summarise(mean = mean(!!value))
+}
+
+grouped_mean_se2(mtcars, c("gear", "cyl"), "hp")
+```
+
+There are also other possibilities for using the tidyeval approach with `seplyr`. One that seems to be useful is to pass grouping variables as a string vector, but use standard `dplyr`'s rules in `summarise`.
+
+```{r}
+grouped_summarise <- function(dt, group, ...) {
+  dt %>% 
+    group_by_se(group) %>%
+    summarise(...)
+}
+
+grouped_summarise(
+  mtcars, "gear",
+  mean_hp = mean(hp),
+  mean_mpg = mean(mpg)
+)
+
+grouped_summarise(
+  mtcars, c("gear", "cyl"),
+  mean_hp = mean(hp),
+  mean_mpg = mean(mpg),
+  n = n()
+)
+```
+
+The same function, but using only standard evaluation techniques is a bit less elegant because a user needs to pass summarise expressions in the form of strings. It might be a problem because the syntax highlight and a tool for code analysis do not work inside the string. But this approach might be sometimes useful.
+
+```{r}
+grouped_summarise_se <- function(dt, group, vals) {
+  dt %>% 
+    group_by_se(group) %>%
+    summarise_se(summarizeTerms = vals)
+}
+
+grouped_summarise_se(
+  mtcars, "gear",
+  vals = list(
+    mean_hp = "mean(hp)",
+    mean_mpg = "mean(mpg)")
+)
+
+grouped_summarise_se(
+  mtcars, c("gear", "cyl"),
+  vals = list(
+    mean_hp = "mean(hp)",
+    mean_mpg = "mean(mpg)",
+    n = "n()"
+  )
+)
+```
+
+### wrapr
+
+The last topic related to nonstandard evaluation rules is a package `wrapr`. It allows substituting the variable name in a code block with something else. Consider this simple example - the variable `VALUE`, will be replaced by `xxx`. I set the `eval` parameter to `FALSE`, to capture the expression, without evaluating. For more information please see the article [here](https://cran.r-project.org/web/packages/wrapr/vignettes/SubstitutionModes.html) or [here](https://winvector.github.io/wrapr/).
+
+```{r}
+value <- "xxx"
+wrapr::let(
+    c(VALUE = value), eval = FALSE,
+    dt %>% 
+      group_by_se(group) %>%
+      summarise(mean = mean(VALUE))
+)
+
+```
+
+So the final version of `grouped_mean` using `wrapr::let` might looks like this (and for me, it's the most elegant solution if we want to use standard evaluation rules and pass string arguments):
+
+```{r}
+grouped_mean_wrapr <- function(dt, group, value) {
+  wrapr::let(
+    c(VALUE = value),
+    dt %>% 
+      group_by_se(group) %>%
+      summarise(mean = mean(VALUE))
+  )
+}
+
+grouped_mean_wrapr(mtcars, c("cyl", "gear"), "hp")
+```
+
+```{r}
+codetools::checkUsage(grouped_mean_wrapr, all = TRUE)
+```
+
+
+
+But there's one caveat. The automatic tools for checking the code (like `codetools::checkUsage`) might treat `VALUE` as an undefined variable. It might cause a warning in `R CMD check`, so such code would have a problem with getting into CRAN. The easy fix for this is to use the name `value` instead of `VALUE` inside `let`. However, I think that using uppercase variables names is a better solution because they're more visible, and it's easier to know which variables are going to be substituted inside the code block. So the other solution is to create an empty variable `VALUE`, to turn off this warning.
+
+```{r}
+grouped_mean_wrapr_clean <- function(dt, group, value) {
+  
+  VALUE <- NULL
+  wrapr::let(
+    c(VALUE = value),
+    dt %>% 
+      group_by_se(group) %>%
+      summarise(mean = mean(VALUE))
+  )
+}
+
+codetools::checkUsage(grouped_mean_wrapr_clean, all = TRUE)
+```
+
+## Summary
+
+In this post I tried to show how you can program with `dplyr`'s  which is based on tidyeval principle, and some other approaches, the `seplyr` which is mostly a `dplyr` with standard evaluation rules, and `wrapr::let` which uses substitution to get the expected code. From all those three approaches my gut feeling tells me that the `wrapr::let` is the most elegant, and precise, but I can't tell if it is sufficient. Probably all of those three approaches have their use cases.
+
+## More resources
+
+- https://cran.r-project.org/web/packages/seplyr/index.html
+- https://cran.r-project.org/web/packages/wrapr/index.html
+- https://adv-r.hadley.nz/quasiquotation.html
+- https://adv-r.hadley.nz/evaluation.html
+- http://www.win-vector.com/blog/2017/07/tutorial-using-seplyr-to-program-over-dplyr/
+
+## Session info
+
+```{r}
+R.version
+packageVersion("dplyr")
+packageVersion("seplyr")
+packageVersion("wrapr")
+```
