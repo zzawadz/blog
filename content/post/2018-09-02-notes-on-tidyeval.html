@@ -224,7 +224,7 @@ grouped_summarise_se(
 </div>
 <div id="wrapr" class="section level3">
 <h3>wrapr</h3>
-<p>The last topic related to nonstandard evaluation rules is a package <code>wrapr</code>. It allows substituting the variable name in a code block with something else. Consider this simple example - the variable <code>VALUE</code>, will be replaced by <code>xxx</code>. I set the <code>eval</code> parameter to <code>FALSE</code>, to capture the expression, without evaluating. For more information please see the article <a href="https://cran.r-project.org/web/packages/wrapr/vignettes/SubstitutionModes.html">here</a> or <a href="https://winvector.github.io/wrapr/">here</a>.</p>
+<p>The last topic related to nonstandard evaluation rules is a package <code>wrapr</code>. It allows substituting the variable name in a code block with something else. Consider this simple example - the variable <code>VALUE</code>, will be replaced by <code>xxx</code>. I set the <code>eval</code> parameter to <code>FALSE</code>, to capture the expression, without evaluating. For more information please check the articles <a href="https://cran.r-project.org/web/packages/wrapr/vignettes/SubstitutionModes.html">here</a> or <a href="https://winvector.github.io/wrapr/">here</a>.</p>
 <pre class="r"><code>value &lt;- &quot;xxx&quot;
 wrapr::let(
     c(VALUE = value), eval = FALSE,

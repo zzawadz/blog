@@ -150,7 +150,7 @@ grouped_summarise_se(
 
 ### wrapr
 
-The last topic related to nonstandard evaluation rules is a package `wrapr`. It allows substituting the variable name in a code block with something else. Consider this simple example - the variable `VALUE`, will be replaced by `xxx`. I set the `eval` parameter to `FALSE`, to capture the expression, without evaluating. For more information please see the article [here](https://cran.r-project.org/web/packages/wrapr/vignettes/SubstitutionModes.html) or [here](https://winvector.github.io/wrapr/).
+The last topic related to nonstandard evaluation rules is a package `wrapr`. It allows substituting the variable name in a code block with something else. Consider this simple example - the variable `VALUE`, will be replaced by `xxx`. I set the `eval` parameter to `FALSE`, to capture the expression, without evaluating. For more information please check the articles [here](https://cran.r-project.org/web/packages/wrapr/vignettes/SubstitutionModes.html) or [here](https://winvector.github.io/wrapr/).
 
 ```{r}
 value <- "xxx"
