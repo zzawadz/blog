@@ -12,6 +12,7 @@ ignoreFiles = ["\\.Rmd$", "_files$", "_cache$", "data"]
 [params]
     description = "Blog about R, Scala, Shiny, Spark, statistics, data science, machine learning and other stuff."
     avatar = "/img/zstat_logo_final.png"
+    googleSiteVerification = "1jGcsgBOFOechhTDX8jgbvZAwO5_6iYBOu9LZTSs5cI"
 
     email = "zygmunt@zstat.pl"
     github = "zzawadz"
