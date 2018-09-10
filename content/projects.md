@@ -22,15 +22,16 @@ img {
 # R packages
 
 
-https://www.depthproc.zstat.pl/
-https://www.dragular.zstat.pl/
-https://www.customlayout.zstat.pl/
+- https://www.depthproc.zstat.pl/
+- https://www.dragular.zstat.pl/
+- https://www.customlayout.zstat.pl/
+- http://mi2-warsaw.github.io/FSelectorRcpp/
 
-## CRAN
+# CRAN
 
-### Author:
+## Author:
 
-#### FSelectorRcpp
+### FSelectorRcpp
 
 http://mi2-warsaw.github.io/FSelectorRcpp/
 
@@ -47,7 +48,7 @@ http://mi2-warsaw.github.io/FSelectorRcpp/
 
 <br/>
 
-#### DepthProc
+### DepthProc
 
 [![CRAN version](https://www.r-pkg.org/badges/version/DepthProc)](https://cran.rstudio.com/web/packages/DepthProc/index.html)
 [![Downloads](https://cranlogs.r-pkg.org/badges/DepthProc)](https://cran.rstudio.com/package=DepthProc)
@@ -61,7 +62,7 @@ Data depth concept offers a variety of powerful and user friendly tools for robu
 
 <br/>
 
-#### dragulaR
+### dragulaR
 
 [![CRAN_Status_Badge](https://www.r-pkg.org/badges/version/dragulaR)](https://cran.r-project.org/package=dragulaR)
 [![Downloads](https://cranlogs.r-pkg.org/badges/dragulaR)](https://cran.rstudio.com/package=dragulaR)
@@ -95,8 +96,8 @@ Create complicated drawing areas for multiple plots by combining much simpler la
 
 <br />
 
-### Contributor:
+## Contributor:
 
-#### pbapply
+### pbapply
 
 A lightweight package that adds progress bar to vectorized R functions ('*apply'). The implementation can easily be added to functions where showing the progress is useful (e.g. bootstrap). The type and style of the progress bar (with percentages or remaining time) can be set through options. Supports several parallel processing backends.
