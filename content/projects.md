@@ -21,11 +21,18 @@ img {
 
 # R packages
 
+
+https://www.depthproc.zstat.pl/
+https://www.dragular.zstat.pl/
+https://www.customlayout.zstat.pl/
+
 ## CRAN
 
 ### Author:
 
 #### FSelectorRcpp
+
+http://mi2-warsaw.github.io/FSelectorRcpp/
 
 [![CRAN_Status_Badge](http://www.r-pkg.org/badges/version/FSelectorRcpp)]( http://cran.rstudio.com/package=FSelectorRcpp)
 [![Downloads](http://cranlogs.r-pkg.org/badges/FSelectorRcpp)](http://cran.rstudio.com/package=FSelectorRcpp)
@@ -67,6 +74,26 @@ Data depth concept offers a variety of powerful and user friendly tools for robu
 R's interface for ***[dragula](https://github.com/bevacqua/dragula)*** library for moving around elements in shiny app.
 
 <br/>
+
+### customLayout
+
+[![CRAN_Status_Badge](https://www.r-pkg.org/badges/version/customLayout)](https://cran.r-project.org/package=customLayout)
+[![Downloads](https://cranlogs.r-pkg.org/badges/customLayout)](https://cran.rstudio.com/package=customLayout)
+[![](https://cranlogs.r-pkg.org/badges/grand-total/customLayout)](https://cran.rstudio.com/web/packages/customLayout/index.html)
+[![Travis-CI Build Status](https://travis-ci.org/zzawadz/customLayout.svg?branch=master)](https://travis-ci.org/zzawadz/customLayout)
+[![AppVeyor Build Status](https://ci.appveyor.com/api/projects/status/github/zzawadz/customLayout?branch=master&svg=true)](https://ci.appveyor.com/project/zzawadz/customLayout)
+[![Coverage Status](https://img.shields.io/codecov/c/github/zzawadz/customLayout/master.svg)](https://codecov.io/github/zzawadz/customLayout?branch=master)
+[![Project Status: Active - The project has reached a stable, usable state and is being actively developed.](https://www.repostatus.org/badges/latest/active.svg)](https://www.repostatus.org/#active)
+
+[![GitHub stars](https://img.shields.io/github/stars/zzawadz/customLayout.svg?style=social&label=Stars)](https://github.com/zzawadz/customLayout/stargazers)
+[![GitHub watchers](https://img.shields.io/github/watchers/zzawadz/customLayout.svg?style=social&label=Watch)](https://github.com/zzawadz/customLayout)
+
+Create complicated drawing areas for multiple plots by combining much simpler layouts. It is an extended version of layout function from the 'graphics' package, but it also works with 'grid' graphics.
+
+#### https://www.customlayout.zstat.pl/
+#### https://github.com/zzawadz/customLayout
+
+<br />
 
 ### Contributor:
 
