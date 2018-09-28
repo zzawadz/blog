@@ -1,0 +1,27 @@
+---
+title: customLayout 0.2.0 is now on CRAN
+author: Zygmunt Zawadzki
+date: '2018-09-28'
+slug: customlayout-0-2-0-on-cran
+tags:
+  - rpkg-customLayout
+  - powerpoint
+  - r-packages
+  - r-reports
+  - rpkg-officer
+---
+
+The new version of my `customLayout` package is on CRAN. It now supports working with PowerPoint slides using layouts created in R. For more information please [read the vignette here](https://www.customlayout.zstat.pl/articles/layouts-for-officer-power-point-document.html).
+
+It also extends the idea of adjusting the font size for the `flextable`s ([see this post](https://www.zstat.pl/2018/07/07/calculate-the-font-size-for-the-r-s-flextable-package/)) - check the [phl_adjust_table](https://www.customlayout.zstat.pl/reference/phl_adjust_table.html) function.
+
+I also created a simple roadmap which describes my next steps. Please note that this package is still under development. I guided myself with the idea from http://wiki.c2.com/?MakeItWorkMakeItRightMakeItFast - I make it work, but now there's time to make it right;)
+
+Any feedback is welcome:)
+
+Useful links:
+
+- https://www.customlayout.zstat.pl/ - package's website.
+- https://www.customlayout.zstat.pl/articles/roadmap - roadmap.
+- https://github.com/zzawadz/customLayout/issues - if you found a bug, or have some ideas about possible enhancements, please fill the issue here.
+- https://github.com/zzawadz/customLayout - the repository with the source code. You can give it the star here:)
