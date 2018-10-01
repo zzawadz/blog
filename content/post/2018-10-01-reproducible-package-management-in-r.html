@@ -1,0 +1,115 @@
+---
+title: Reproducible package management in R
+author: Zygmunt Zawadzki
+date: '2018-10-01'
+slug: reproducible-package-management-in-r
+tags:
+  - r-administration
+  - r-packages
+  - rpkg-packrat
+  - rpkg-checkpoint
+  - all-reproducibility
+  - all-containers
+---
+
+
+
+<p>Reproducibility is a severe issue. Writing code usually helps, because the code is like a journal of your work, especially if you combine it with literate programming techniques, which in R’s world is so easy to do (<code>Rmarkdown</code>, <code>knitr</code>).</p>
+<p>However, there’s one thing, which can cause some problems - the packages versions. Some of the old code might not work, because there were changes in the API or in the behavior of the packages (I’m looking at you - <code>dplyr</code>).</p>
+<div id="packrat" class="section level3">
+<h3><code>packrat</code></h3>
+<p>First is the <code>packrat</code> package, which allows creating a private library of packages for each project. It also keeps the record of the versions of installed packages, and it can recreate that private library, even if you change the machines. It is an excellent solution to synchronize the package versions when a few people work on the same project.</p>
+<div id="pros" class="section level4">
+<h4>Pros:</h4>
+<ul>
+<li>Easy to set up (just <code>packrat::init()</code>).</li>
+<li>Easy to use. Usually, after setting up the private library, you don’t need to do anything else, just run <code>packrat::snapshot()</code> when you install a new library.</li>
+</ul>
+</div>
+<div id="cons" class="section level4">
+<h4>Cons:</h4>
+<ul>
+<li>The packages take some space (e.g., for some of my projects the packrat library is around 500MB).</li>
+<li>Does not solve the problem of the R version. E.g., if you created a packrat when you were using R3.0, and now you use R3.5 packrat might not be able to install all the packages for the new version (I had such a situation).</li>
+</ul>
+</div>
+</div>
+<div id="resources" class="section level3">
+<h3>Resources:</h3>
+<ul>
+<li><a href="https://rstudio.github.io/packrat/" class="uri">https://rstudio.github.io/packrat/</a></li>
+<li><a href="https://github.com/rstudio/packrat/" class="uri">https://github.com/rstudio/packrat/</a></li>
+</ul>
+</div>
+<div id="checkpoint-package" class="section level3">
+<h3><code>checkpoint</code> package</h3>
+<p>Another way of solving the problem of package versions is to use the <code>checkpoint</code> package from Microsoft. Its usage is described here. It allows freezing the CRAN state to a given date, so all installed packages will be as they were installed precisely in that day. It works in a quite similar way to <code>packrat</code>, but it creates the library for a specific date, not by project. So two projects can share the packages from the same library if they use the same <code>checkpoint</code> date.</p>
+<div id="pros-1" class="section level4">
+<h4>Pros:</h4>
+<ul>
+<li>Freezing the date is quite simple and does not require to keep a big <code>packrat</code> directory.</li>
+</ul>
+</div>
+<div id="cons-1" class="section level4">
+<h4>Cons:</h4>
+<ul>
+<li>The problem of the R version is still unsolved.</li>
+<li>It is a bit harder to keep specific versions of packages. For example, I use the checkpoint date <code>2018-01-01</code>, where the X package has a version 0.5, but in my project, I need a version 0.3 (but I’m fine that all other packages are from <code>2018-01-01</code>). In this case, packrat is more natural to use.</li>
+</ul>
+</div>
+</div>
+<div id="resources-1" class="section level3">
+<h3>Resources:</h3>
+<ul>
+<li><a href="https://mran.microsoft.com/documents/rro/reproducibility" class="uri">https://mran.microsoft.com/documents/rro/reproducibility</a></li>
+<li><a href="https://cran.r-project.org/web/packages/checkpoint/vignettes/checkpoint.html" class="uri">https://cran.r-project.org/web/packages/checkpoint/vignettes/checkpoint.html</a></li>
+</ul>
+</div>
+<div id="containers" class="section level3">
+<h3>Containers</h3>
+<p>When I write this post the most popular container technology is Docker, but who knows what will be in the future?</p>
+<p>I think this is the only (easy) solution which allows solving the problem of the R version. You just put everything into the container, every required system library, R installation, R packages, all the code, and then work from the container (it’s good to install the Rstudio Server inside the container). You can even combine this approach with <code>packrat</code> or <code>checkpoint</code>.</p>
+<div id="pros-2" class="section level4">
+<h4>Pros:</h4>
+<ul>
+<li>By using containers you can freeze everything, so there’s no worry about changing the R version, or even any version of the system library.</li>
+</ul>
+</div>
+<div id="cons-2" class="section level4">
+<h4>Cons:</h4>
+<ul>
+<li>Requires some knowledge about containers.</li>
+<li>It bundles nearly everything inside, so it needs a lot of disk space.</li>
+<li>Building a container takes much more time than merely installing the packages.</li>
+</ul>
+</div>
+<div id="resources-2" class="section level4">
+<h4>Resources</h4>
+<ul>
+<li><a href="https://www.rocker-project.org/" class="uri">https://www.rocker-project.org/</a></li>
+<li><a href="https://rjournal.github.io/archive/2017/RJ-2017-065/RJ-2017-065.pdf" class="uri">https://rjournal.github.io/archive/2017/RJ-2017-065/RJ-2017-065.pdf</a></li>
+</ul>
+</div>
+</div>
+<div id="summary" class="section level2">
+<h2>Summary</h2>
+<p>In this post, I described the three ways for making your R code a bit more reproducible by freezing the R packages for a given project. I usually use <code>packrat</code>, because it keeps all the dependencies inside the project. If I need to be sure that everything will work in the future, I use <code>Docker</code>, but sometimes it not possible (e.g., <code>Docker</code> is not installed, or the system administrator doesn’t want to use containers), so then I stick with <code>packrat</code>.</p>
+</div>
+<div id="other-resources" class="section level2">
+<h2>Other resources</h2>
+<div id="docker" class="section level4">
+<h4>Docker</h4>
+<ul>
+<li><a href="https://github.com/veggiemonk/awesome-docker" class="uri">https://github.com/veggiemonk/awesome-docker</a> - a long list of Docker resources.</li>
+<li><a href="https://docs.docker.com/" class="uri">https://docs.docker.com/</a> - Docker docs.</li>
+<li><a href="https://dockerbook.com/" class="uri">https://dockerbook.com/</a> - a book about Docker.</li>
+</ul>
+</div>
+<div id="other-stuff" class="section level4">
+<h4>Other stuff</h4>
+<ul>
+<li><a href="https://coreos.com/rkt/" class="uri">https://coreos.com/rkt/</a> - an alternative to the Docker containers (it works with Docker containers).</li>
+<li><a href="https://github.com/ramitsurana/awesome-coreos" class="uri">https://github.com/ramitsurana/awesome-coreos</a> - a list of resources related to <code>CoreOS</code> (operating system for working with containers) and <code>rkt</code></li>
+</ul>
+</div>
+</div>

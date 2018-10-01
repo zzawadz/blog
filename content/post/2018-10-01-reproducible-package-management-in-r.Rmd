@@ -1,0 +1,91 @@
+---
+title: Reproducible package management in R
+author: Zygmunt Zawadzki
+date: '2018-10-01'
+slug: reproducible-package-management-in-r
+tags:
+  - r-administration
+  - r-packages
+  - rpkg-packrat
+  - rpkg-checkpoint
+  - all-reproducibility
+  - all-containers
+---
+
+Reproducibility is a severe issue. Writing code usually helps, because the code is like a journal of your work, especially if you combine it with literate programming techniques, which in R's world is so easy to do (`Rmarkdown`, `knitr`).
+
+However, there's one thing, which can cause some problems - the packages versions. Some of the old code might not work, because there were changes in the API or in the behavior of the packages (I'm looking at you - `dplyr`).
+
+### `packrat`
+
+First is the `packrat` package, which allows creating a private library of packages for each project. It also keeps the record of the versions of installed packages, and it can recreate that private library, even if you change the machines. It is an excellent solution to synchronize the package versions when a few people work on the same project.
+
+#### Pros:
+
+- Easy to set up (just `packrat::init()`).
+- Easy to use. Usually, after setting up the private library, you don't need to do anything else, just run `packrat::snapshot()` when you install a new library.
+
+#### Cons:
+
+- The packages take some space (e.g., for some of my projects the packrat library is around 500MB).
+- Does not solve the problem of the R version. E.g., if you created a packrat when you were using R3.0, and now you use R3.5 packrat might not be able to install all the packages for the new version (I had such a situation).
+
+### Resources:
+
+- https://rstudio.github.io/packrat/
+- https://github.com/rstudio/packrat/
+
+### `checkpoint` package
+
+Another way of solving the problem of package versions is to use the `checkpoint` package from Microsoft. Its usage is described here. It allows freezing the CRAN state to a given date, so all installed packages will be as they were installed precisely in that day. It works in a quite similar way to `packrat`, but it creates the library for a specific date, not by project. So two projects can share the packages from the same library if they use the same `checkpoint` date.
+
+#### Pros:
+
+- Freezing the date is quite simple and does not require to keep a big `packrat` directory.
+
+#### Cons:
+
+- The problem of the R version is still unsolved.
+- It is a bit harder to keep specific versions of packages. For example, I use the checkpoint date `2018-01-01`, where the X package has a version 0.5, but in my project, I need a version 0.3 (but I'm fine that all other packages are from `2018-01-01`). In this case, packrat is more natural to use.
+
+### Resources:
+
+- https://mran.microsoft.com/documents/rro/reproducibility
+- https://cran.r-project.org/web/packages/checkpoint/vignettes/checkpoint.html
+
+### Containers
+
+When I write this post the most popular container technology is Docker, but who knows what will be in the future?
+
+I think this is the only (easy) solution which allows solving the problem of the R version.  You just put everything into the container, every required system library, R installation, R packages, all the code, and then work from the container (it's good to install the Rstudio Server inside the container). You can even combine this approach with `packrat` or `checkpoint`.
+
+#### Pros:
+- By using containers you can freeze everything, so there's no worry about changing the R version, or even any version of the system library.
+
+#### Cons:
+
+- Requires some knowledge about containers.
+- It bundles nearly everything inside, so it needs a lot of disk space.
+- Building a container takes much more time than merely installing the packages.
+
+#### Resources
+
+- https://www.rocker-project.org/
+- https://rjournal.github.io/archive/2017/RJ-2017-065/RJ-2017-065.pdf
+
+## Summary
+
+In this post, I described the three ways for making your R code a bit more reproducible by freezing the R packages for a given project. I usually use `packrat`, because it keeps all the dependencies inside the project. If I need to be sure that everything will work in the future, I use `Docker`, but sometimes it not possible (e.g., `Docker` is not installed, or the system administrator doesn't want to use containers), so then I stick with `packrat`.
+
+## Other resources
+
+#### Docker
+
+- https://github.com/veggiemonk/awesome-docker - a long list of Docker resources.
+- https://docs.docker.com/ - Docker docs.
+- https://dockerbook.com/ - a book about Docker.
+
+#### Other stuff
+
+- https://coreos.com/rkt/ - an alternative to the Docker containers (it works with Docker containers).
+- https://github.com/ramitsurana/awesome-coreos - a list of resources related to `CoreOS` (operating system for working with containers) and `rkt`
