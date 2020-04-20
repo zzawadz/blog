@@ -48,9 +48,3 @@ ignoreFiles = ["\\.Rmd$", "_files$", "_cache$", "data"]
   weight = 20
   identifier = "tags"
   url = "/tags/"
-
-[[languages.en.menu.main]]
-  name = "Data Scientist in Supply Chain"
-  weight = 60
-  identifier = "supply-chain"
-  url = "/supply-chain/"
