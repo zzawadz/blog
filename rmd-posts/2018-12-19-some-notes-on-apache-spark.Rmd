@@ -1,0 +1,69 @@
+---
+title: Some notes on Apache Spark
+author: Zygmunt Zawadzki
+date: '2018-12-19'
+slug: some-notes-on-apache-spark
+tags:   
+  - Spark
+---
+
+Some notes based on two videos describing Apache Spark concepts.
+
+- https://www.youtube.com/watch?v=AoVmgzontXo - Spark SQL: A Compiler from Queries to RDDs: Spark Summit East talk by Sameer Agarwal
+- https://www.youtube.com/watch?v=vfiJQ7wg81Y - Top 5 Mistakes When Writing Spark Applications.
+
+## Spark SQL: A Compiler from Queries to RDDs: Spark Summit East talk by Sameer Agarwal
+
+- https://youtu.be/AoVmgzontXo?t=641 - an example of the optimization done by Catalyst (better to watch the whole video to get better understanding of the whole context).
+
+- https://youtu.be/AoVmgzontXo?t=1153 - Volcano model (the standard model used to implement query evaluation systems -  http://daslab.seas.harvard.edu/reading-group/papers/volcano.pdf).
+
+- https://youtu.be/AoVmgzontXo?t=1416 - some benchmarks comparing Spark's 1.6 iterator approach with 2.0's code generator.
+
+- https://youtu.be/AoVmgzontXo?t=1602 - short discussion about new things in Spark 2.2
+
+- https://issues.apache.org/jira/browse/SPARK-16026.If - JIRA issue related to cost based query optimizer.
+
+- https://issues.apache.org/jira/secure/attachment/12823839/Spark_CBO_Design_Spec.pdf - designg doc for query optimizer.
+  
+  
+## Top 5 Mistakes When Writing Spark Applications
+
+- https://www.youtube.com/watch?v=vfiJQ7wg81Y - link to video.
+
+### Example of the resource calculations (number of executors, cores and memory for each executor). Example for 6 nodes, 16 cores and 64GB on each node.
+
+We need to leave one core for YARN, so there 15 cores left per node. Then to maximize HDFS troughput max 5 cores per executor should be used, so there should be 3 executors per node.
+
+Then we need to leave 1 GB memory for OS, so 63GB is available. Then 7% of the allocated memory should goes to YARN so the final calcualtion is:
+(64-1) / 3 = 21, 21 * 0.97 ~= 19GB
+1 executor for YARN AM => 17 executors.
+
+No - dynamic allocation does not help - in only solves the problem of `num-executors`, and allows to deactivate them when they're not used (e.g. user left Spark Shell opened), but the number of cores and memory must be specified manually.
+
+### Mistake 2:
+
+https://youtu.be/vfiJQ7wg81Y?t=597: SIze exceeds Integer.MAX_VALUE - no shuffle block can be greater than 2 GB.
+
+There's a good description what's the shuffle block.
+
+JIRA issue related to this https://youtu.be/vfiJQ7wg81Y?t=597 (mentioned in the presentation).
+
+Rule of thumb - 128MB per partition - the size of the shuffle block.
+
+https://youtu.be/vfiJQ7wg81Y?t=383
+
+### Mistake 3 - skewed data
+
+Add salting - Key + random.nextInt(saltFactor).
+
+### Mistake 4 - DAG Management
+
+https://youtu.be/vfiJQ7wg81Y?t=1105
+https://blog.cloudera.com/blog/2015/07/how-to-do-data-quality-checks-using-apache-spark-dataframes/
+
+### Mistake 4 - no such method exception.
+
+Occures when there's difference between version of the libs used by Spark and the user.
+
+Solution - shading - https://youtu.be/vfiJQ7wg81Y?t=1397.

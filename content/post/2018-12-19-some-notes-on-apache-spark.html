@@ -1,0 +1,63 @@
+---
+title: Some notes on Apache Spark
+author: Zygmunt Zawadzki
+date: '2018-12-19'
+slug: some-notes-on-apache-spark
+tags:   
+  - Spark
+---
+
+
+
+<p>Some notes based on two videos describing Apache Spark concepts.</p>
+<ul>
+<li><a href="https://www.youtube.com/watch?v=AoVmgzontXo" class="uri">https://www.youtube.com/watch?v=AoVmgzontXo</a> - Spark SQL: A Compiler from Queries to RDDs: Spark Summit East talk by Sameer Agarwal</li>
+<li><a href="https://www.youtube.com/watch?v=vfiJQ7wg81Y" class="uri">https://www.youtube.com/watch?v=vfiJQ7wg81Y</a> - Top 5 Mistakes When Writing Spark Applications.</li>
+</ul>
+<div id="spark-sql-a-compiler-from-queries-to-rdds-spark-summit-east-talk-by-sameer-agarwal" class="section level2">
+<h2>Spark SQL: A Compiler from Queries to RDDs: Spark Summit East talk by Sameer Agarwal</h2>
+<ul>
+<li><p><a href="https://youtu.be/AoVmgzontXo?t=641" class="uri">https://youtu.be/AoVmgzontXo?t=641</a> - an example of the optimization done by Catalyst (better to watch the whole video to get better understanding of the whole context).</p></li>
+<li><p><a href="https://youtu.be/AoVmgzontXo?t=1153" class="uri">https://youtu.be/AoVmgzontXo?t=1153</a> - Volcano model (the standard model used to implement query evaluation systems - <a href="http://daslab.seas.harvard.edu/reading-group/papers/volcano.pdf" class="uri">http://daslab.seas.harvard.edu/reading-group/papers/volcano.pdf</a>).</p></li>
+<li><p><a href="https://youtu.be/AoVmgzontXo?t=1416" class="uri">https://youtu.be/AoVmgzontXo?t=1416</a> - some benchmarks comparing Spark’s 1.6 iterator approach with 2.0’s code generator.</p></li>
+<li><p><a href="https://youtu.be/AoVmgzontXo?t=1602" class="uri">https://youtu.be/AoVmgzontXo?t=1602</a> - short discussion about new things in Spark 2.2</p></li>
+<li><p><a href="https://issues.apache.org/jira/browse/SPARK-16026.If" class="uri">https://issues.apache.org/jira/browse/SPARK-16026.If</a> - JIRA issue related to cost based query optimizer.</p></li>
+<li><p><a href="https://issues.apache.org/jira/secure/attachment/12823839/Spark_CBO_Design_Spec.pdf" class="uri">https://issues.apache.org/jira/secure/attachment/12823839/Spark_CBO_Design_Spec.pdf</a> - designg doc for query optimizer.</p></li>
+</ul>
+</div>
+<div id="top-5-mistakes-when-writing-spark-applications" class="section level2">
+<h2>Top 5 Mistakes When Writing Spark Applications</h2>
+<ul>
+<li><a href="https://www.youtube.com/watch?v=vfiJQ7wg81Y" class="uri">https://www.youtube.com/watch?v=vfiJQ7wg81Y</a> - link to video.</li>
+</ul>
+<div id="example-of-the-resource-calculations-number-of-executors-cores-and-memory-for-each-executor.-example-for-6-nodes-16-cores-and-64gb-on-each-node." class="section level3">
+<h3>Example of the resource calculations (number of executors, cores and memory for each executor). Example for 6 nodes, 16 cores and 64GB on each node.</h3>
+<p>We need to leave one core for YARN, so there 15 cores left per node. Then to maximize HDFS troughput max 5 cores per executor should be used, so there should be 3 executors per node.</p>
+<p>Then we need to leave 1 GB memory for OS, so 63GB is available. Then 7% of the allocated memory should goes to YARN so the final calcualtion is:
+(64-1) / 3 = 21, 21 * 0.97 ~= 19GB
+1 executor for YARN AM =&gt; 17 executors.</p>
+<p>No - dynamic allocation does not help - in only solves the problem of <code>num-executors</code>, and allows to deactivate them when they’re not used (e.g. user left Spark Shell opened), but the number of cores and memory must be specified manually.</p>
+</div>
+<div id="mistake-2" class="section level3">
+<h3>Mistake 2:</h3>
+<p><a href="https://youtu.be/vfiJQ7wg81Y?t=597" class="uri">https://youtu.be/vfiJQ7wg81Y?t=597</a>: SIze exceeds Integer.MAX_VALUE - no shuffle block can be greater than 2 GB.</p>
+<p>There’s a good description what’s the shuffle block.</p>
+<p>JIRA issue related to this <a href="https://youtu.be/vfiJQ7wg81Y?t=597" class="uri">https://youtu.be/vfiJQ7wg81Y?t=597</a> (mentioned in the presentation).</p>
+<p>Rule of thumb - 128MB per partition - the size of the shuffle block.</p>
+<p><a href="https://youtu.be/vfiJQ7wg81Y?t=383" class="uri">https://youtu.be/vfiJQ7wg81Y?t=383</a></p>
+</div>
+<div id="mistake-3---skewed-data" class="section level3">
+<h3>Mistake 3 - skewed data</h3>
+<p>Add salting - Key + random.nextInt(saltFactor).</p>
+</div>
+<div id="mistake-4---dag-management" class="section level3">
+<h3>Mistake 4 - DAG Management</h3>
+<p><a href="https://youtu.be/vfiJQ7wg81Y?t=1105" class="uri">https://youtu.be/vfiJQ7wg81Y?t=1105</a>
+<a href="https://blog.cloudera.com/blog/2015/07/how-to-do-data-quality-checks-using-apache-spark-dataframes/" class="uri">https://blog.cloudera.com/blog/2015/07/how-to-do-data-quality-checks-using-apache-spark-dataframes/</a></p>
+</div>
+<div id="mistake-4---no-such-method-exception." class="section level3">
+<h3>Mistake 4 - no such method exception.</h3>
+<p>Occures when there’s difference between version of the libs used by Spark and the user.</p>
+<p>Solution - shading - <a href="https://youtu.be/vfiJQ7wg81Y?t=1397" class="uri">https://youtu.be/vfiJQ7wg81Y?t=1397</a>.</p>
+</div>
+</div>

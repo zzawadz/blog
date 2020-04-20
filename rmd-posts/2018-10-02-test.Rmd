@@ -1,0 +1,60 @@
+---
+title: Spark Streaming and Mllib
+author: Zygmunt Zawadzki
+date: '2018-08-03'
+slug: spark-streaming-ml
+tags: 
+  - spark-streaming
+  - sbt
+  - spark-mllib
+---
+
+
+```{r, eval=FALSE}
+devtools::install_github("zzawadz/zstatUtils")
+```
+
+
+```{r sbt}
+library(zstatUtils)
+library(knitr)
+# ~/spark-streaming-basic-setup - there the project will be created
+knitr::knit_engines$set(sbt = make_sbt_engine("~/vegas", stderr = TRUE))
+```
+
+Let's start with creating the `sbt` project using `zstatUtils` package (more on that [in the previous post](https://www.zstat.pl/2018/08/01/spark-streaming-basic-setup/)):
+
+```{sbt}
+// plugins.sbt
+addSbtPlugin("org.xerial.sbt" % "sbt-pack" % "0.11")
+```
+
+```{sbt}
+// build.sbt
+scalaVersion := "2.11.12"
+libraryDependencies += "org.vegas-viz" %% "vegas" % "0.3.11"
+
+enablePlugins(PackPlugin)
+```
+
+```{scala}
+import vegas._
+import vegas.render.WindowRenderer._
+
+val plot = Vegas("Country Pop").
+  withData(
+    Seq(
+      Map("country" -> "USA", "population" -> 314),
+      Map("country" -> "UK", "population" -> 64),
+      Map("country" -> "DK", "population" -> 80)
+    )
+  ).
+  encodeX("country", Nom).
+  encodeY("population", Quant).
+  mark(Bar)
+
+```
+
+```{scala}
+println(plot.html.pageHTML())
+```
