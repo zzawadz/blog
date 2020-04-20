@@ -1,11 +1,10 @@
 ---
 title: "Data Scientist in Supply Chain"
-date: "2020-04-20T21:48:51-07:00"
+date: "2020-04-19T21:48:51-07:00"
 layout: "about"
 menu: "main"
-weight: 30
+weight: 100
 ---
-
 
 ## Forecasting
 
