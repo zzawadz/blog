@@ -6,6 +6,37 @@ menu: "main"
 weight: 100
 ---
 
+## General knowledge about Supply Chain
+
+### Basic
+
+1. Clement J, Coldrick A, Sari J. Manufacturing data structures: building foundations for excellence with bills of materials and process information. Chichester: Wiley; 1995. 
+2. Arnold JRT, Ph. D. Chapman SN, Clive LM. Introduction to Materials Management Casebook. Upper Saddle River, N.J; 2000. 138 p. 
+3. Introduction to Materials Management. 8 edition. Boston: Pearson; 2016. 512 p. 
+### Advanced
+
+1. Factory Physics. 3 edition. Long Grove, Ill: Waveland Pr Inc; 2011. 720 p. 
+
+### Lean
+
+1. The Toyota Way: 14 Management Principles from the World’s Greatest Manufacturer. 1 edition. McGraw-Hill Education; 2003. 362 p. 
+2. Lean Production Simplified: A Plain-Language Guide to the World’s Most Powerful Production System. 3 edition. Productivity Press; 2016. 223 p. 
+
+### Six Sigma
+
+1. Cano EL, Moguerza JM, Redchuk A. Six sigma with R: statistical engineering for process improvement. New York, NY: Springer; 2012. 284 p. (Use R!). 
+
+### Theory of constraints
+
+My favorite section. TOC was like a revelation to me.
+
+1. Goldratt EM, Cox J. The Goal: A Process of Ongoing Improvement. Revised edition. Great Barrington, MA: North River Pr; 1992. 384 p. 
+2. Goldratt EM, Goldratt-Ashlag E. The Choice, Revised Edition. Revised edition. North River Press; 2010. 240 p. 
+3. Goldratt EM, Schragenheim E, Ptak CA. Necessary but Not Sufficient. North River Press; 2000. 242 p. 
+4. Goldratt EM. It’s Not Luck. 1 edition. Great Barrington, MA: North River Pr; 1994. 283 p. 
+5. Goldratt EM, Eshkoli I, Brownleer J. Isn’t It Obvious?: A Business Novel on Retailing Using the Theory of Constraints. 232 p. 
+6. Goldratt EM. Critical Chain: A Business Novel. 246 p. 
+
 ## Forecasting
 
 ### Business knowledge
@@ -56,3 +87,7 @@ weight: 100
 2. Janssenswillen G, Depaire B, Swennen M, Jans M, Vanhoof K. bupaR: Enabling reproducible business process analysis. Knowledge Based Systems [Internet]. 2019 Jan 1 [cited 2020 Apr 13]; Available from: https://scinapse.io/papers/2898939393
 3. Janssenswillen G, Mannhardt F, Martin N, Houdt GV. bupaR: Business Process Analysis in R [Internet]. 2020 [cited 2020 Apr 13]. Available from: https://CRAN.R-project.org/package=bupaR
 4. Janssenswillen G, Depaire B. bupaR: Business Process Analysis in R. In 2017. 
+
+# Quality control
+
+WIP. This section will be filled with Deming, Juran and others.
