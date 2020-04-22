@@ -13,6 +13,10 @@ weight: 100
 1. Clement J, Coldrick A, Sari J. Manufacturing data structures: building foundations for excellence with bills of materials and process information. Chichester: Wiley; 1995. 
 2. Arnold JRT, Ph. D. Chapman SN, Clive LM. Introduction to Materials Management Casebook. Upper Saddle River, N.J; 2000. 138 p. 
 3. Introduction to Materials Management. 8 edition. Boston: Pearson; 2016. 512 p. 
+4. King P. Crack the Code Understanding safety stock and mastering its equations. 2011; Available from: http://web.mit.edu/2.810/www/files/readings/King_SafetyStock.pdf
+
+
+
 ### Advanced
 
 1. Factory Physics. 3 edition. Long Grove, Ill: Waveland Pr Inc; 2011. 720 p. 
@@ -21,6 +25,8 @@ weight: 100
 
 1. The Toyota Way: 14 Management Principles from the World’s Greatest Manufacturer. 1 edition. McGraw-Hill Education; 2003. 362 p. 
 2. Lean Production Simplified: A Plain-Language Guide to the World’s Most Powerful Production System. 3 edition. Productivity Press; 2016. 223 p. 
+3. McLean T. On time, in full: achieving perfect delivery with lean thinking in purchasing, supply chain, and production planning. Boca Raton, FL: CRC Press, Taylor & Francis Group; 2017. 184 p. 
+
 
 ### Six Sigma
 
@@ -37,11 +43,18 @@ My favorite section. TOC was like a revelation to me.
 5. Goldratt EM, Eshkoli I, Brownleer J. Isn’t It Obvious?: A Business Novel on Retailing Using the Theory of Constraints. 232 p. 
 6. Goldratt EM. Critical Chain: A Business Novel. 246 p. 
 
+### Total quality management
+
+1. Deming WE. Out of the crisis. 1. MIT Press ed. Cambridge, Mass.: The MIT Press; 2000. 507 p. 
+2. (20) Red Bead Experiment with Dr. W. Edwards Deming - YouTube [Internet]. [cited 2020 Apr 22]. Available from: https://www.youtube.com/watch?v=ckBfbvOXDvU
+
 ## Forecasting
 
 ### Business knowledge
 
 1. Sales and Operations Planning The How-To Handbook. 3 edition. Cincinnati, Ohio: Steelwedge Software; 2008. 266 p. 
+2. Proud JF. Master Scheduling: A Practical Guide to Competitive Manufacturing. 3 edition. Hoboken, N.J: Wiley; 2013. 688 p. 
+
 
 ### Statistics/Data Science
 
