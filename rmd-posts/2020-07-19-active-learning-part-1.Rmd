@@ -1,0 +1,228 @@
+---
+title: Active learning - part 1
+author: Zygmunt Zawadzki
+date: '2020-07-19'
+slug: active-learning-part-1
+tags:
+  - r
+  - active-learning
+  - machine-learning
+---
+
+I just started exploring the 'active learning' topic. Unfortunat
+
+<!--more-->
+
+```{r}
+library(knitr)
+knitr::opts_chunk$set(cache = TRUE, warning = FALSE)
+```
+
+Let's start with the main assumptions 
+
+```{r}
+library(dplyr)
+library(FSelectorRcpp)
+
+# https://stackoverflow.com/questions/16474696/read-system-tmp-dir-in-r
+gettmpdir <- function() {
+  tm <- Sys.getenv(c('TMPDIR', 'TMP', 'TEMP'))
+  d <- which(file.info(tm)$isdir & file.access(tm, 2) == 0)
+  if (length(d) > 0)
+    tm[[d[1]]]
+  else if (.Platform$OS.type == 'windows')
+    Sys.getenv('R_USER')
+  else
+    '/tmp'
+}
+
+dataDir <- file.path(gettmpdir(), "data")
+dir.create(dataDir, showWarnings = FALSE, recursive = TRUE)
+
+dataZip <- file.path(dataDir, "bank-data.zip")
+dataUrl <- "https://archive.ics.uci.edu/ml/machine-learning-databases/00222/bank.zip"
+download.file(dataUrl, dataZip)
+
+unzip(dataZip, exdir = dataDir)
+
+dataPath <- file.path(dataDir, "bank-full.csv")
+```
+
+```{r}
+# read data and split into test/traings sets
+library(readr)
+allData <- readr::read_delim(dataPath, delim = ";", 
+  col_types = readr::cols(
+  age = col_double(),
+  job = col_character(),
+  marital = col_character(),
+  education = col_character(),
+  default = col_character(),
+  balance = col_double(),
+  housing = col_character(),
+  loan = col_character(),
+  contact = col_character(),
+  day = col_double(),
+  month = col_character(),
+  duration = col_double(),
+  campaign = col_double(),
+  pdays = col_double(),
+  previous = col_double(),
+  poutcome = col_character(),
+  y = col_character()
+  ))
+allData <- allData %>%
+  mutate(row_id = row_number()) %>%
+  select(-month, -job) %>%
+  mutate(y = y == "yes")
+
+set.seed(123)
+idx <- sample.int(nrow(allData), nrow(allData)*0.2)
+
+trainAll <- allData[-idx,]
+testAll <- allData[idx,]
+```
+
+```{r}
+#' @param get_new_idx function which returns the selected rows
+#' indexes to be labelled by the oracle. In this function the 'active learning'
+#' logic resides.
+make_active_learning_path <- function(trainAll, testAll, nstart = 500, n = 50, k = 50, get_new_idx) {
+
+  # init training data set by selecting randomly nstart rows from 
+  # 'unlabelled' data
+  idxInit <- tibble(row_id = sample(trainAll$row_id, nstart))
+  train <- inner_join(trainAll, idxInit, by = "row_id")
+  trainAll <- anti_join(trainAll, idxInit, by = "row_id")
+
+  aucRes <- rep(0, n)
+
+  for(i in 1:n) {
+
+    # build a classification model using simple logistics regression
+    fit <- glm(y ~ ., data = train %>% select(-row_id), family = "binomial")
+
+    # calculate AUC
+    res <- predict(fit, newdata = testAll, type="response")
+    aucRes[i] <- suppressMessages(pROC::auc(testAll$y, res, ))
+
+    # select new indexes which will be added to the training set
+    newIdx <- get_new_idx(trainAll, train, fit, k)
+
+    trainNew <- inner_join(trainAll, newIdx, by = "row_id")
+    train    <- bind_rows(train, trainNew)
+    
+    # remove selected indexes from available 'unlabelled' set.
+    trainAll <- anti_join(trainAll, newIdx,by = "row_id") 
+  }
+  
+  return(aucRes)
+}
+
+```
+
+```{r}
+get_new_idx_most_uncertain <- function(trainAll, train, fit, k) {
+    predTrainLeftout <- predict(fit, newdata = trainAll, type="response")
+    tr <- trainAll %>% mutate(predTrainLeftout = predTrainLeftout) %>% arrange(abs(predTrainLeftout - 0.5))
+    tr %>% select(row_id) %>% head(k)
+}
+
+get_new_idx_random <- function(trainAll, train, fit, k) {
+  trainAll %>% sample_n(k, replace = FALSE) %>% select(row_id)
+}
+
+get_new_idx_entropy <- function(trainAll, train, fit, k) {
+
+      tt <- suppressWarnings(train %>% select(-row_id) %>% discretize(y ~ .) %>% extract_discretize_transformer())
+      dt <- trainAll %>% discretize_transform(disc = tt) %>% select(-y)
+      tr <- discretize_transform(disc = tt, data = train) %>% select(-y)
+
+      colNames <- head(colnames(dt),-1)
+      res <- setNames(lapply(colNames, function(nm) {
+        ent <- FSelectorRcpp:::fs_entropy1d(tr[[nm]])
+        rr <- sapply(unique(dt[[nm]]), function(x) {
+          setNames(FSelectorRcpp:::fs_entropy1d(c(tr[[nm]], x)) - ent, as.character(x))
+        }, USE.NAMES = FALSE)
+
+        rr <- tibble(nm = names(rr), value = rr)
+        colnames(rr)[1] <- nm
+        rr
+      }), colNames)
+
+      dt2 <- dt
+      for(ii in res) {
+        dt2 <- inner_join(dt2, ii, by = colnames(ii)[[1]])
+      }
+
+      dt2 <- dt2 %>% mutate(entrChange = rowSums(dt2 %>% select(contains("value"))))
+      dt2 %>% arrange(desc(entrChange)) %>% select(row_id) %>% head(k)
+}
+
+######### entropy2
+get_new_idx_entropy_information_gain <- function(trainAll, train, fit, k) {
+
+  tt <- suppressWarnings(train %>% select(-row_id) %>% discretize(y ~ .) %>% extract_discretize_transformer())
+  dt <- trainAll %>% discretize_transform(disc = tt) %>% select(-y)
+  tr <- discretize_transform(disc = tt, data = train) %>% select(-y)
+
+  colNames <- head(colnames(dt),-1)
+
+  infGain <- information_gain(y ~ ., train %>% select(-row_id))
+
+  res <- setNames(lapply(colNames, function(nm) {
+    ent <- FSelectorRcpp:::fs_entropy1d(tr[[nm]])
+    rr <- sapply(unique(dt[[nm]]), function(x) {
+      setNames(FSelectorRcpp:::fs_entropy1d(c(tr[[nm]], x)) - ent, as.character(x))
+    }, USE.NAMES = FALSE)
+
+    rr <- rr * (infGain %>% filter(attributes == nm))$importance
+    rr <- tibble(nm = names(rr), value = rr)
+    colnames(rr)[1] <- nm
+    rr
+  }), colNames)
+
+  dt2 <- dt
+  for(ii in res) {
+    dt2 <- inner_join(dt2, ii, by = colnames(ii)[[1]])
+  }
+
+  dt2 <- dt2 %>% mutate(entrChange = rowSums(dt2 %>% select(contains("value"))))
+  dt2 %>% arrange(desc(entrChange)) %>% select(row_id) %>% head(k)
+}
+##########
+
+transform_run <- function(x) {
+  xx <- t(x)
+  colnames(xx) <- 1:ncol(xx)
+  rownames(xx) <- 1:nrow(xx)
+  res <- bind_cols(tibble(iter = 1:nrow(xx)), as.data.frame(xx))
+  res <- pivot_longer(res, cols = c(-iter), names_to = "round", values_to = "AUC")
+  res
+}
+
+set.seed(123)
+mostUncertain <- pbapply::pbreplicate(20, make_active(trainAll, testAll, get_new_idx = get_new_idx_most_uncertain))
+set.seed(123)
+allRandom <- pbapply::pbreplicate(20, make_active(trainAll, testAll, get_new_idx = get_new_idx_random))
+set.seed(123)
+entrRes <- pbapply::pbreplicate(20, make_active(trainAll, testAll, get_new_idx = get_new_idx_entropy))
+set.seed(123)
+entrResScaledByInformationGain <- pbapply::pbreplicate(20, make_active(trainAll, testAll, get_new_idx = get_new_idx_entropy_information_gain))
+
+mostUncertain <- mostUncertain %>% transform_run %>% mutate(Type = "Most uncertain")
+allRandom <- allRandom %>% transform_run %>% mutate(Type = "Random")
+entrRes <- entrRes %>% transform_run %>% mutate(Type = "Entropy")
+entrResScaledByInformationGain <- entrResScaledByInformationGain %>% transform_run %>% mutate(Type = "Entropy scaled by information gain")
+
+result <- bind_rows(mostUncertain, allRandom, entrRes, entrResScaledByInformationGain)
+result <- result %>% mutate(round = factor(round, levels = sort(unique(as.integer(round))), ordered = TRUE))
+ggplot(result) + geom_boxplot(aes(x = round, y = AUC, color = Type)) + scale_x_discrete()
+
+result2 <- result %>% group_by(round, Type) %>% summarise(AUC_Mean = mean(AUC), SD = sd(AUC), q025 = quantile(AUC, probs = 0.025), q975 = quantile(AUC, probs = 0.975))
+ggplot(result2 %>% mutate(round = as.integer(round))) +
+  geom_ribbon(aes(round, ymax = q025, ymin = q975, fill = Type), alpha = 0.2) + theme_bw() +
+  geom_line(aes(round, AUC_Mean, color = Type), size = 1.5)
+
+
+```
