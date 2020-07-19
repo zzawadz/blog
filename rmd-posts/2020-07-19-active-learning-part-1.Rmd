@@ -13,17 +13,18 @@ I just started exploring the 'active learning' topic. Unfortunat
 
 <!--more-->
 
-```{r}
+```{r, message=FALSE, warning=FALSE}
 library(knitr)
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(FSelectorRcpp)
 knitr::opts_chunk$set(cache = TRUE, warning = FALSE)
 ```
 
 Let's start with the main assumptions 
 
 ```{r}
-library(dplyr)
-library(FSelectorRcpp)
-
 # https://stackoverflow.com/questions/16474696/read-system-tmp-dir-in-r
 gettmpdir <- function() {
   tm <- Sys.getenv(c('TMPDIR', 'TMP', 'TEMP'))
@@ -121,17 +122,100 @@ make_active_learning_path <- function(trainAll, testAll, nstart = 500, n = 50, k
 
 ```
 
+In the first attempt I'll use a function which selects data points for which the model is the most uncertain - in the binary classification task those will be the case where the estimated probability is closest to 0.5:
+
 ```{r}
 get_new_idx_most_uncertain <- function(trainAll, train, fit, k) {
     predTrainLeftout <- predict(fit, newdata = trainAll, type="response")
     tr <- trainAll %>% mutate(predTrainLeftout = predTrainLeftout) %>% arrange(abs(predTrainLeftout - 0.5))
     tr %>% select(row_id) %>% head(k)
 }
+```
 
+The second function selects the rows at random:
+
+```{r}
 get_new_idx_random <- function(trainAll, train, fit, k) {
   trainAll %>% sample_n(k, replace = FALSE) %>% select(row_id)
 }
+```
 
+Let's run the first two experiments:
+```{r}
+transform_run <- function(x) {
+  xx <- t(x)
+  colnames(xx) <- 1:ncol(xx)
+  rownames(xx) <- 1:nrow(xx)
+  res <- bind_cols(tibble(iter = 1:nrow(xx)), as.data.frame(xx))
+  res <- pivot_longer(res, cols = c(-iter), names_to = "round", values_to = "AUC")
+  res
+}
+
+set.seed(123)
+mostUncertain <- pbapply::pbreplicate(
+  20,
+  make_active_learning_path(trainAll, testAll, get_new_idx = get_new_idx_most_uncertain)
+  ) %>% transform_run %>% mutate(Type = "Most uncertain")
+
+set.seed(123)
+allRandom <- pbapply::pbreplicate(
+  20,
+  make_active_learning_path(trainAll, testAll, get_new_idx = get_new_idx_random)
+  ) %>% transform_run %>% mutate(Type = "Random")
+
+
+
+```
+
+```{r}
+result <- bind_rows(mostUncertain, allRandom)
+
+make_plot <- function(result, addRibbon = FALSE) {
+  result2 <- result %>% 
+    group_by(round, Type) %>%
+    summarise(
+      AUC_Mean = mean(AUC),
+      SD = sd(AUC),
+      q025 = quantile(AUC, probs = 0.025),
+      q975 = quantile(AUC, probs = 0.975))
+  
+  p <- ggplot(result2 %>% mutate(round = as.integer(round))) +
+    geom_line(aes(round, AUC_Mean, color = Type), size = 1.5) + 
+    theme_bw()
+
+  if(addRibbon) {
+    p <- p +
+      geom_ribbon(aes(round, ymax = q025, ymin = q975, fill = Type), alpha = 0.2)
+  }
+
+  return(p)
+}
+
+```
+
+```{r}
+make_plot(result = result)
+```
+```{r}
+get_new_idx_most_uncertain2 <- function(trainAll, train, fit, k) {
+    predTrainLeftout <- predict(fit, newdata = trainAll, type="response")
+    tr <- trainAll %>% mutate(predTrainLeftout = predTrainLeftout) %>% arrange(abs(predTrainLeftout - mean(train$y)))
+    tr %>% select(row_id) %>% head(k)
+}
+
+set.seed(123)
+mostUncertain2 <- pbapply::pbreplicate(
+  20,
+  make_active_learning_path(trainAll, testAll, get_new_idx = get_new_idx_most_uncertain2)
+  ) %>% transform_run %>% mutate(Type = "Most uncertain - fixed")
+
+result <- bind_rows(mostUncertain, mostUncertain2, allRandom)
+make_plot(result)
+```
+
+## Entropy based 'active learning'
+
+```{r}
 get_new_idx_entropy <- function(trainAll, train, fit, k) {
 
       tt <- suppressWarnings(train %>% select(-row_id) %>% discretize(y ~ .) %>% extract_discretize_transformer())
@@ -192,37 +276,14 @@ get_new_idx_entropy_information_gain <- function(trainAll, train, fit, k) {
 }
 ##########
 
-transform_run <- function(x) {
-  xx <- t(x)
-  colnames(xx) <- 1:ncol(xx)
-  rownames(xx) <- 1:nrow(xx)
-  res <- bind_cols(tibble(iter = 1:nrow(xx)), as.data.frame(xx))
-  res <- pivot_longer(res, cols = c(-iter), names_to = "round", values_to = "AUC")
-  res
-}
-
-set.seed(123)
-mostUncertain <- pbapply::pbreplicate(20, make_active(trainAll, testAll, get_new_idx = get_new_idx_most_uncertain))
-set.seed(123)
-allRandom <- pbapply::pbreplicate(20, make_active(trainAll, testAll, get_new_idx = get_new_idx_random))
-set.seed(123)
 entrRes <- pbapply::pbreplicate(20, make_active(trainAll, testAll, get_new_idx = get_new_idx_entropy))
 set.seed(123)
 entrResScaledByInformationGain <- pbapply::pbreplicate(20, make_active(trainAll, testAll, get_new_idx = get_new_idx_entropy_information_gain))
 
-mostUncertain <- mostUncertain %>% transform_run %>% mutate(Type = "Most uncertain")
+mostUncertain <- mostUncertain 
 allRandom <- allRandom %>% transform_run %>% mutate(Type = "Random")
 entrRes <- entrRes %>% transform_run %>% mutate(Type = "Entropy")
 entrResScaledByInformationGain <- entrResScaledByInformationGain %>% transform_run %>% mutate(Type = "Entropy scaled by information gain")
-
-result <- bind_rows(mostUncertain, allRandom, entrRes, entrResScaledByInformationGain)
-result <- result %>% mutate(round = factor(round, levels = sort(unique(as.integer(round))), ordered = TRUE))
-ggplot(result) + geom_boxplot(aes(x = round, y = AUC, color = Type)) + scale_x_discrete()
-
-result2 <- result %>% group_by(round, Type) %>% summarise(AUC_Mean = mean(AUC), SD = sd(AUC), q025 = quantile(AUC, probs = 0.025), q975 = quantile(AUC, probs = 0.975))
-ggplot(result2 %>% mutate(round = as.integer(round))) +
-  geom_ribbon(aes(round, ymax = q025, ymin = q975, fill = Type), alpha = 0.2) + theme_bw() +
-  geom_line(aes(round, AUC_Mean, color = Type), size = 1.5)
 
 
 ```
