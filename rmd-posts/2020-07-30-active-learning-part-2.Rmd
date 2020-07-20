@@ -1,0 +1,94 @@
+---
+title: Active learning - part 2
+author: Zygmunt Zawadzki
+date: '2020-07-19'
+slug: active-learning-part-2
+tags:
+  - r
+  - active-learning
+  - machine-learning
+---
+
+I just started exploring the 'active learning' topic. It's a very handy tool when the number of data points to build a model is limited and labelling new points is costly. It allows to determine which points should be labelled next to bring the most gain in model performance. In this post I will cover some of my small experiments in this area.
+
+Caution!
+
+If you're interested in ready-to-use tools for active learning, this post might not be for you - I don't cover any framework here. It's all about fun (for me) and building some intuitions.
+
+<!--more-->
+## Entropy based 'active learning'.
+
+In the second step 
+
+```{r}
+get_new_idx_entropy <- function(trainAll, train, fit, k) {
+
+      tt <- suppressWarnings(train %>% select(-row_id) %>% discretize(y ~ .) %>% extract_discretize_transformer())
+      dt <- trainAll %>% discretize_transform(disc = tt) %>% select(-y)
+      tr <- discretize_transform(disc = tt, data = train) %>% select(-y)
+
+      colNames <- head(colnames(dt),-1)
+      res <- setNames(lapply(colNames, function(nm) {
+        ent <- FSelectorRcpp:::fs_entropy1d(tr[[nm]])
+        rr <- sapply(unique(dt[[nm]]), function(x) {
+          setNames(FSelectorRcpp:::fs_entropy1d(c(tr[[nm]], x)) - ent, as.character(x))
+        }, USE.NAMES = FALSE)
+
+        rr <- tibble(nm = names(rr), value = rr)
+        colnames(rr)[1] <- nm
+        rr
+      }), colNames)
+
+      dt2 <- dt
+      for(ii in res) {
+        dt2 <- inner_join(dt2, ii, by = colnames(ii)[[1]])
+      }
+
+      dt2 <- dt2 %>% mutate(entrChange = rowSums(dt2 %>% select(contains("value"))))
+      dt2 %>% arrange(desc(entrChange)) %>% select(row_id) %>% head(k)
+}
+
+######### entropy2
+get_new_idx_entropy_information_gain <- function(trainAll, train, fit, k) {
+
+  tt <- suppressWarnings(train %>% select(-row_id) %>% discretize(y ~ .) %>% extract_discretize_transformer())
+  dt <- trainAll %>% discretize_transform(disc = tt) %>% select(-y)
+  tr <- discretize_transform(disc = tt, data = train) %>% select(-y)
+
+  colNames <- head(colnames(dt),-1)
+
+  infGain <- information_gain(y ~ ., train %>% select(-row_id))
+
+  res <- setNames(lapply(colNames, function(nm) {
+    ent <- FSelectorRcpp:::fs_entropy1d(tr[[nm]])
+    rr <- sapply(unique(dt[[nm]]), function(x) {
+      setNames(FSelectorRcpp:::fs_entropy1d(c(tr[[nm]], x)) - ent, as.character(x))
+    }, USE.NAMES = FALSE)
+
+    rr <- rr * (infGain %>% filter(attributes == nm))$importance
+    rr <- tibble(nm = names(rr), value = rr)
+    colnames(rr)[1] <- nm
+    rr
+  }), colNames)
+
+  dt2 <- dt
+  for(ii in res) {
+    dt2 <- inner_join(dt2, ii, by = colnames(ii)[[1]])
+  }
+
+  dt2 <- dt2 %>% mutate(entrChange = rowSums(dt2 %>% select(contains("value"))))
+  dt2 %>% arrange(desc(entrChange)) %>% select(row_id) %>% head(k)
+}
+##########
+
+entrRes <- pbapply::pbreplicate(20, make_active(trainAll, testAll, get_new_idx = get_new_idx_entropy))
+set.seed(123)
+entrResScaledByInformationGain <- pbapply::pbreplicate(20, make_active(trainAll, testAll, get_new_idx = get_new_idx_entropy_information_gain))
+
+mostUncertain <- mostUncertain 
+allRandom <- allRandom %>% transform_run %>% mutate(Type = "Random")
+entrRes <- entrRes %>% transform_run %>% mutate(Type = "Entropy")
+entrResScaledByInformationGain <- entrResScaledByInformationGain %>% transform_run %>% mutate(Type = "Entropy scaled by information gain")
+
+
+```

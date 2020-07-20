@@ -9,9 +9,17 @@ tags:
   - machine-learning
 ---
 
-I just started exploring the 'active learning' topic. Unfortunat
+I just started exploring the 'active learning' topic. It's a very handy tool when the number of data points to build a model is limited and labelling new points is costly. It allows to determine which points should be labelled next to bring the most gain in model performance. In this post I will cover some of my small experiments in this area.
+
+Caution!
+
+If you're interested in ready-to-use tools for active learning, this post might not be for you - I don't cover any framework here. It's all about fun (for me) and building some intuitions.
 
 <!--more-->
+
+I will not describe ***active learning's*** basis ideas - if you're interested in this checkout Wikipedia page - https://en.wikipedia.org/wiki/Active_learning_(machine_learning). 
+
+Let's start with loading packages required for my experiments.
 
 ```{r, message=FALSE, warning=FALSE}
 library(knitr)
@@ -19,10 +27,10 @@ library(tidyr)
 library(dplyr)
 library(ggplot2)
 library(FSelectorRcpp)
-knitr::opts_chunk$set(cache = TRUE, warning = FALSE)
+knitr::opts_chunk$set(cache = TRUE, warning = FALSE, message = TRUE, eval = FALSE)
 ```
 
-Let's start with the main assumptions 
+To make some simulations, it's good to have some data. I grabbed a dataset from https://archive.ics.uci.edu/ml/index.php. Below there's a code to download and unzip the data into `tmp` directory. 
 
 ```{r}
 # https://stackoverflow.com/questions/16474696/read-system-tmp-dir-in-r
@@ -47,7 +55,10 @@ download.file(dataUrl, dataZip)
 unzip(dataZip, exdir = dataDir)
 
 dataPath <- file.path(dataDir, "bank-full.csv")
+message("Data path: ", dataPath)
 ```
+
+Then the data needs to be prepared. Nothing special here, just simple reading data into R session and splitting it into train and test sets.
 
 ```{r}
 # read data and split into test/traings sets
@@ -72,17 +83,24 @@ allData <- readr::read_delim(dataPath, delim = ";",
   poutcome = col_character(),
   y = col_character()
   ))
+
 allData <- allData %>%
   mutate(row_id = row_number()) %>%
-  select(-month, -job) %>%
-  mutate(y = y == "yes")
+  select(-month, -job) %>% # I have a problem with those two columns during 
+                           # training phase so I removed them
+  mutate(y = y == "yes") # transform to TRUE/FALSE
 
+# split the data into train/test sets.
 set.seed(123)
 idx <- sample.int(nrow(allData), nrow(allData)*0.2)
 
 trainAll <- allData[-idx,]
 testAll <- allData[idx,]
 ```
+
+For my 'AL' experiment I made a special workhorse function which handles nearly everything. As the last argument it takes a special function `get_new_idx` which returns the `rows_id` from `trainAll` data.frame to be added to `train` set in the next round. This simulates the active learning scheme. Data points selected by the `get_new_idx` would go to the oracle to be annotated.
+
+As a model performance score I'm using AUC.
 
 ```{r}
 #' @param get_new_idx function which returns the selected rows
@@ -122,6 +140,8 @@ make_active_learning_path <- function(trainAll, testAll, nstart = 500, n = 50, k
 
 ```
 
+## First experiment - the most uncertain points vs random sample. 
+
 In the first attempt I'll use a function which selects data points for which the model is the most uncertain - in the binary classification task those will be the case where the estimated probability is closest to 0.5:
 
 ```{r}
@@ -132,7 +152,7 @@ get_new_idx_most_uncertain <- function(trainAll, train, fit, k) {
 }
 ```
 
-The second function selects the rows at random:
+The second function selects the rows at random. There's nothing fancy in here:
 
 ```{r}
 get_new_idx_random <- function(trainAll, train, fit, k) {
@@ -141,7 +161,9 @@ get_new_idx_random <- function(trainAll, train, fit, k) {
 ```
 
 Let's run the first two experiments:
+
 ```{r}
+# utility function to transform pbreplicate result into data.frame
 transform_run <- function(x) {
   xx <- t(x)
   colnames(xx) <- 1:ncol(xx)
@@ -151,6 +173,7 @@ transform_run <- function(x) {
   res
 }
 
+## performing 20 replications of each simulations
 set.seed(123)
 mostUncertain <- pbapply::pbreplicate(
   20,
@@ -162,10 +185,8 @@ allRandom <- pbapply::pbreplicate(
   20,
   make_active_learning_path(trainAll, testAll, get_new_idx = get_new_idx_random)
   ) %>% transform_run %>% mutate(Type = "Random")
-
-
-
 ```
+Some code to visualize the result:
 
 ```{r}
 result <- bind_rows(mostUncertain, allRandom)
@@ -193,9 +214,21 @@ make_plot <- function(result, addRibbon = FALSE) {
 
 ```
 
+And there it is. Here I was really surprised, because I expected that selecting the points for which the model is the most uncertain would be much better than random sampling, but the opposite is true!
+
+What could be the reason?
+
 ```{r}
 make_plot(result = result)
 ```
+
+I think for this data set the answer is imbalance in the training data. The most uncertain point is not the `50%` but `~11%`, because if we would not have any model (and we would just use the percentage of `yes` answers) we should assume that the probability of `yes` is around `11%`, not `50%`. 
+
+```{r}
+mean(allData$y)
+```
+So, let's adjust the rows selecting function to take care of the class imbalance (the only change is to replace `0.5` with `mean(train$y)`):
+
 ```{r}
 get_new_idx_most_uncertain2 <- function(trainAll, train, fit, k) {
     predTrainLeftout <- predict(fit, newdata = trainAll, type="response")
@@ -209,81 +242,51 @@ mostUncertain2 <- pbapply::pbreplicate(
   make_active_learning_path(trainAll, testAll, get_new_idx = get_new_idx_most_uncertain2)
   ) %>% transform_run %>% mutate(Type = "Most uncertain - fixed")
 
+```
+
+As I was expecting, the result looks much better than the first version, but it's still worse than random selection. 
+
+```{r}
 result <- bind_rows(mostUncertain, mostUncertain2, allRandom)
 make_plot(result)
 ```
 
-## Entropy based 'active learning'
+It seems unintuitive, but it makes sense. To score which points should be taken into account I took only raw probability estimates, completely ignoring errors from the model. For one point the estimate might be `26% +- 5%` and for another `26% +- 20%`. In my case both points are treated equally, which seems wrong.
 
 ```{r}
-get_new_idx_entropy <- function(trainAll, train, fit, k) {
-
-      tt <- suppressWarnings(train %>% select(-row_id) %>% discretize(y ~ .) %>% extract_discretize_transformer())
-      dt <- trainAll %>% discretize_transform(disc = tt) %>% select(-y)
-      tr <- discretize_transform(disc = tt, data = train) %>% select(-y)
-
-      colNames <- head(colnames(dt),-1)
-      res <- setNames(lapply(colNames, function(nm) {
-        ent <- FSelectorRcpp:::fs_entropy1d(tr[[nm]])
-        rr <- sapply(unique(dt[[nm]]), function(x) {
-          setNames(FSelectorRcpp:::fs_entropy1d(c(tr[[nm]], x)) - ent, as.character(x))
-        }, USE.NAMES = FALSE)
-
-        rr <- tibble(nm = names(rr), value = rr)
-        colnames(rr)[1] <- nm
-        rr
-      }), colNames)
-
-      dt2 <- dt
-      for(ii in res) {
-        dt2 <- inner_join(dt2, ii, by = colnames(ii)[[1]])
-      }
-
-      dt2 <- dt2 %>% mutate(entrChange = rowSums(dt2 %>% select(contains("value"))))
-      dt2 %>% arrange(desc(entrChange)) %>% select(row_id) %>% head(k)
-}
-
-######### entropy2
-get_new_idx_entropy_information_gain <- function(trainAll, train, fit, k) {
-
-  tt <- suppressWarnings(train %>% select(-row_id) %>% discretize(y ~ .) %>% extract_discretize_transformer())
-  dt <- trainAll %>% discretize_transform(disc = tt) %>% select(-y)
-  tr <- discretize_transform(disc = tt, data = train) %>% select(-y)
-
-  colNames <- head(colnames(dt),-1)
-
-  infGain <- information_gain(y ~ ., train %>% select(-row_id))
-
-  res <- setNames(lapply(colNames, function(nm) {
-    ent <- FSelectorRcpp:::fs_entropy1d(tr[[nm]])
-    rr <- sapply(unique(dt[[nm]]), function(x) {
-      setNames(FSelectorRcpp:::fs_entropy1d(c(tr[[nm]], x)) - ent, as.character(x))
-    }, USE.NAMES = FALSE)
-
-    rr <- rr * (infGain %>% filter(attributes == nm))$importance
-    rr <- tibble(nm = names(rr), value = rr)
-    colnames(rr)[1] <- nm
-    rr
-  }), colNames)
-
-  dt2 <- dt
-  for(ii in res) {
-    dt2 <- inner_join(dt2, ii, by = colnames(ii)[[1]])
-  }
-
-  dt2 <- dt2 %>% mutate(entrChange = rowSums(dt2 %>% select(contains("value"))))
-  dt2 %>% arrange(desc(entrChange)) %>% select(row_id) %>% head(k)
-}
-##########
-
-entrRes <- pbapply::pbreplicate(20, make_active(trainAll, testAll, get_new_idx = get_new_idx_entropy))
 set.seed(123)
-entrResScaledByInformationGain <- pbapply::pbreplicate(20, make_active(trainAll, testAll, get_new_idx = get_new_idx_entropy_information_gain))
+fit <- glm(y ~ ., data = train %>% select(-row_id) %>% sample_n(500), family = "binomial")
 
-mostUncertain <- mostUncertain 
-allRandom <- allRandom %>% transform_run %>% mutate(Type = "Random")
-entrRes <- entrRes %>% transform_run %>% mutate(Type = "Entropy")
-entrResScaledByInformationGain <- entrResScaledByInformationGain %>% transform_run %>% mutate(Type = "Entropy scaled by information gain")
+pred <- predict(fit, se.fit = TRUE)
+pred <- tibble(link = pred$fit, se.fit = pred$se.fit) %>% arrange(desc(link))
 
+pred[51:54,] %>%
+  mutate(Prob = plogis(link), Prob_1se = plogis(link + se.fit)) %>%
+  mutate_all(function(x) round(x, digits = 3)) %>% 
+  kable()
 
 ```
+
+```{r}
+get_new_idx_most_uncertain3_stdErr_based <- function(trainAll, train, fit, k) {
+    stdErr <- predict(fit, newdata = trainAll, se.fit = TRUE)$se.fit
+    tr <- trainAll %>% mutate(stdErr = stdErr) %>% arrange(desc(stdErr))
+    tr %>% select(row_id) %>% head(k)
+}
+
+set.seed(123)
+mostUncertain3StdErrBased <- pbapply::pbreplicate(
+  20,
+  make_active_learning_path(
+    trainAll, testAll,
+    get_new_idx = get_new_idx_most_uncertain3_stdErr_based)
+  ) %>% transform_run %>% mutate(Type = "Most uncertain - std.err based")
+
+```
+
+The idea looked promising, but the reality is tough. This is the worst strategy from all four. Selecting by random is still the best. 
+
+```{r}
+make_plot(bind_rows(mostUncertain, mostUncertain2, allRandom, mostUncertain3StdErrBased))
+```
+
