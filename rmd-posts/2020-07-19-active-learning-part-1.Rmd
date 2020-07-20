@@ -178,19 +178,17 @@ set.seed(123)
 mostUncertain <- pbapply::pbreplicate(
   20,
   make_active_learning_path(trainAll, testAll, get_new_idx = get_new_idx_most_uncertain)
-  ) %>% transform_run %>% mutate(Type = "Most uncertain")
+  ) %>% transform_run %>% mutate(Type = "1. Most uncertain")
 
 set.seed(123)
 allRandom <- pbapply::pbreplicate(
   20,
   make_active_learning_path(trainAll, testAll, get_new_idx = get_new_idx_random)
-  ) %>% transform_run %>% mutate(Type = "Random")
+  ) %>% transform_run %>% mutate(Type = "0. Random")
 ```
 Some code to visualize the result:
 
 ```{r}
-result <- bind_rows(mostUncertain, allRandom)
-
 make_plot <- function(result, addRibbon = FALSE) {
   result2 <- result %>% 
     group_by(round, Type) %>%
@@ -219,7 +217,7 @@ And there it is. Here I was really surprised, because I expected that selecting 
 What could be the reason?
 
 ```{r}
-make_plot(result = result)
+make_plot(bind_rows(mostUncertain, allRandom))
 ```
 
 I think for this data set the answer is imbalance in the training data. The most uncertain point is not the `50%` but `~11%`, because if we would not have any model (and we would just use the percentage of `yes` answers) we should assume that the probability of `yes` is around `11%`, not `50%`. 
@@ -240,18 +238,17 @@ set.seed(123)
 mostUncertain2 <- pbapply::pbreplicate(
   20,
   make_active_learning_path(trainAll, testAll, get_new_idx = get_new_idx_most_uncertain2)
-  ) %>% transform_run %>% mutate(Type = "Most uncertain - fixed")
+  ) %>% transform_run %>% mutate(Type = "3. Most uncertain - sample based")
 
 ```
 
 As I was expecting, the result looks much better than the first version, but it's still worse than random selection. 
 
 ```{r}
-result <- bind_rows(mostUncertain, mostUncertain2, allRandom)
-make_plot(result)
+make_plot(bind_rows(mostUncertain, mostUncertain2, allRandom))
 ```
 
-It seems unintuitive, but it makes sense. To score which points should be taken into account I took only raw probability estimates, completely ignoring errors from the model. For one point the estimate might be `26% +- 5%` and for another `26% +- 20%`. In my case both points are treated equally, which seems wrong.
+It seems unintuitive, but it makes sense. To score which points should be taken into account I took only raw probability estimates, completely ignoring errors from the model. For one point the estimate might be `26% +- 5%` and for another `26% +- 20%`. In my case both points are treated equally, which seems wrong. See an example here:
 
 ```{r}
 set.seed(123)
@@ -267,6 +264,8 @@ pred[51:54,] %>%
 
 ```
 
+Some in the next experiment I will select those points where the standard error is the biggest. See the code below:
+
 ```{r}
 get_new_idx_most_uncertain3_stdErr_based <- function(trainAll, train, fit, k) {
     stdErr <- predict(fit, newdata = trainAll, se.fit = TRUE)$se.fit
@@ -280,13 +279,47 @@ mostUncertain3StdErrBased <- pbapply::pbreplicate(
   make_active_learning_path(
     trainAll, testAll,
     get_new_idx = get_new_idx_most_uncertain3_stdErr_based)
-  ) %>% transform_run %>% mutate(Type = "Most uncertain - std.err based")
+  ) %>% transform_run %>% mutate(Type = "4. Most uncertain - std.err based")
 
 ```
 
-The idea looked promising, but the reality is tough. This is the worst strategy from all four. Selecting by random is still the best. 
+The idea looked promising, but the reality is tough. This is the worst strategy from all four. Selecting by random is still the best. After some mediation on this result I conclude that this might not be the best idea, because it selects the most noisy points which probably bring much more noise than a good quality signal.
 
 ```{r}
 make_plot(bind_rows(mostUncertain, mostUncertain2, allRandom, mostUncertain3StdErrBased))
 ```
 
+My last idea for now is to remove points with very high standard error. To do this, I'm filtering out everything points with a standard error greater than its `97.5%` quantile.
+
+```{r}
+get_new_idx_most_uncertain3_stdErr_trimmed <- function(trainAll, train, fit, k) {
+    stdErr <- predict(fit, newdata = trainAll, se.fit = TRUE)$se.fit
+    tr <- trainAll %>% mutate(stdErr = stdErr) %>% arrange(desc(stdErr))
+    tr <- tr %>% filter(stdErr < quantile(stdErr, probs = 0.975))
+    
+    tr %>% select(row_id) %>% head(k)
+}
+
+set.seed(123)
+mostUncertain3StdErrTrimmed <- pbapply::pbreplicate(
+  20,
+  make_active_learning_path(
+    trainAll, testAll,
+    get_new_idx = get_new_idx_most_uncertain3_stdErr_trimmed)
+  ) %>% transform_run %>% mutate(Type = "5. Most uncertain - std.err trimmed")
+
+```
+
+Aaand... This is still bad solution. Not as bad as the previous one, but still.
+
+```{r}
+make_plot(
+  bind_rows(mostUncertain, mostUncertain2, 
+            allRandom, mostUncertain3StdErrBased,
+            mostUncertain3StdErrTrimmed))
+```
+
+
+## Summary
+
+Active learning is an interesting idea. It's very exciting that simple and crude solutions do not work very well. It's really a place where good theory should thrive (or at least be better than random sampling:)). I will probably do a little more experiments in this area to build more intuitions before digging into proper, well-founded methods.
