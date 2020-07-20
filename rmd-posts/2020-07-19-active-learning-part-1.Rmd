@@ -27,7 +27,7 @@ library(tidyr)
 library(dplyr)
 library(ggplot2)
 library(FSelectorRcpp)
-knitr::opts_chunk$set(cache = TRUE, warning = FALSE, message = TRUE, eval = FALSE)
+knitr::opts_chunk$set(cache = TRUE, warning = FALSE, message = FALSE, eval = TRUE)
 ```
 
 To make some simulations, it's good to have some data. I grabbed a dataset from https://archive.ics.uci.edu/ml/index.php. Below there's a code to download and unzip the data into `tmp` directory. 
@@ -176,13 +176,13 @@ transform_run <- function(x) {
 ## performing 20 replications of each simulations
 set.seed(123)
 mostUncertain <- pbapply::pbreplicate(
-  20,
+  50,
   make_active_learning_path(trainAll, testAll, get_new_idx = get_new_idx_most_uncertain)
   ) %>% transform_run %>% mutate(Type = "1. Most uncertain")
 
 set.seed(123)
 allRandom <- pbapply::pbreplicate(
-  20,
+  50,
   make_active_learning_path(trainAll, testAll, get_new_idx = get_new_idx_random)
   ) %>% transform_run %>% mutate(Type = "0. Random")
 ```
@@ -212,7 +212,7 @@ make_plot <- function(result, addRibbon = FALSE) {
 
 ```
 
-And there it is. Here I was really surprised, because I expected that selecting the points for which the model is the most uncertain would be much better than random sampling, but the opposite is true!
+And there it is (each round means additional `k` samples added to training set, the higher the curve is located the better). Here I was really surprised, because I expected that selecting the points for which the model is the most uncertain would be much better than random sampling, but the opposite is true!
 
 What could be the reason?
 
@@ -236,9 +236,9 @@ get_new_idx_most_uncertain2 <- function(trainAll, train, fit, k) {
 
 set.seed(123)
 mostUncertain2 <- pbapply::pbreplicate(
-  20,
+  50,
   make_active_learning_path(trainAll, testAll, get_new_idx = get_new_idx_most_uncertain2)
-  ) %>% transform_run %>% mutate(Type = "3. Most uncertain - sample based")
+  ) %>% transform_run %>% mutate(Type = "2. Most uncertain - sample based")
 
 ```
 
@@ -252,7 +252,7 @@ It seems unintuitive, but it makes sense. To score which points should be taken 
 
 ```{r}
 set.seed(123)
-fit <- glm(y ~ ., data = train %>% select(-row_id) %>% sample_n(500), family = "binomial")
+fit <- glm(y ~ ., data = trainAll %>% select(-row_id) %>% sample_n(500), family = "binomial")
 
 pred <- predict(fit, se.fit = TRUE)
 pred <- tibble(link = pred$fit, se.fit = pred$se.fit) %>% arrange(desc(link))
@@ -275,11 +275,11 @@ get_new_idx_most_uncertain3_stdErr_based <- function(trainAll, train, fit, k) {
 
 set.seed(123)
 mostUncertain3StdErrBased <- pbapply::pbreplicate(
-  20,
+  50,
   make_active_learning_path(
     trainAll, testAll,
     get_new_idx = get_new_idx_most_uncertain3_stdErr_based)
-  ) %>% transform_run %>% mutate(Type = "4. Most uncertain - std.err based")
+  ) %>% transform_run %>% mutate(Type = "3. Most uncertain - std.err based")
 
 ```
 
@@ -302,11 +302,11 @@ get_new_idx_most_uncertain3_stdErr_trimmed <- function(trainAll, train, fit, k) 
 
 set.seed(123)
 mostUncertain3StdErrTrimmed <- pbapply::pbreplicate(
-  20,
+  50,
   make_active_learning_path(
     trainAll, testAll,
     get_new_idx = get_new_idx_most_uncertain3_stdErr_trimmed)
-  ) %>% transform_run %>% mutate(Type = "5. Most uncertain - std.err trimmed")
+  ) %>% transform_run %>% mutate(Type = "4. Most uncertain - std.err trimmed")
 
 ```
 
