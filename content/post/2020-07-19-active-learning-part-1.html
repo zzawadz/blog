@@ -1,0 +1,290 @@
+---
+title: Active learning - part 1
+author: Zygmunt Zawadzki
+date: '2020-07-19'
+slug: active-learning-part-1
+tags:
+  - r
+  - active-learning
+  - machine-learning
+---
+
+
+
+<p>I just started exploring the ‘active learning’ topic. It’s a very handy tool when the number of data points to build a model is limited and labelling new points is costly. It allows to determine which points should be labelled next to bring the most gain in model performance. In this post I will cover some of my small experiments in this area.</p>
+<p>Caution!</p>
+<p>If you’re interested in ready-to-use tools for active learning, this post might not be for you - I don’t cover any framework here. It’s all about fun (for me) and building some intuitions.</p>
+<!--more-->
+<p>I will not describe <strong><em>active learning’s</em></strong> basis ideas - if you’re interested in this checkout Wikipedia page - <a href="https://en.wikipedia.org/wiki/Active_learning_(machine_learning)" class="uri">https://en.wikipedia.org/wiki/Active_learning_(machine_learning)</a>.</p>
+<p>Let’s start with loading packages required for my experiments.</p>
+<pre class="r"><code>library(knitr)
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(FSelectorRcpp)
+knitr::opts_chunk$set(cache = TRUE, warning = FALSE, message = FALSE, eval = TRUE)</code></pre>
+<p>To make some simulations, it’s good to have some data. I grabbed a dataset from <a href="https://archive.ics.uci.edu/ml/index.php" class="uri">https://archive.ics.uci.edu/ml/index.php</a>. Below there’s a code to download and unzip the data into <code>tmp</code> directory.</p>
+<pre class="r"><code># https://stackoverflow.com/questions/16474696/read-system-tmp-dir-in-r
+gettmpdir &lt;- function() {
+  tm &lt;- Sys.getenv(c(&#39;TMPDIR&#39;, &#39;TMP&#39;, &#39;TEMP&#39;))
+  d &lt;- which(file.info(tm)$isdir &amp; file.access(tm, 2) == 0)
+  if (length(d) &gt; 0)
+    tm[[d[1]]]
+  else if (.Platform$OS.type == &#39;windows&#39;)
+    Sys.getenv(&#39;R_USER&#39;)
+  else
+    &#39;/tmp&#39;
+}
+
+dataDir &lt;- file.path(gettmpdir(), &quot;data&quot;)
+dir.create(dataDir, showWarnings = FALSE, recursive = TRUE)
+
+dataZip &lt;- file.path(dataDir, &quot;bank-data.zip&quot;)
+dataUrl &lt;- &quot;https://archive.ics.uci.edu/ml/machine-learning-databases/00222/bank.zip&quot;
+download.file(dataUrl, dataZip)
+
+unzip(dataZip, exdir = dataDir)
+
+dataPath &lt;- file.path(dataDir, &quot;bank-full.csv&quot;)
+message(&quot;Data path: &quot;, dataPath)</code></pre>
+<p>Then the data needs to be prepared. Nothing special here, just simple reading data into R session and splitting it into train and test sets.</p>
+<pre class="r"><code># read data and split into test/traings sets
+library(readr)
+allData &lt;- readr::read_delim(dataPath, delim = &quot;;&quot;, 
+  col_types = readr::cols(
+  age = col_double(),
+  job = col_character(),
+  marital = col_character(),
+  education = col_character(),
+  default = col_character(),
+  balance = col_double(),
+  housing = col_character(),
+  loan = col_character(),
+  contact = col_character(),
+  day = col_double(),
+  month = col_character(),
+  duration = col_double(),
+  campaign = col_double(),
+  pdays = col_double(),
+  previous = col_double(),
+  poutcome = col_character(),
+  y = col_character()
+  ))
+
+allData &lt;- allData %&gt;%
+  mutate(row_id = row_number()) %&gt;%
+  select(-month, -job) %&gt;% # I have a problem with those two columns during 
+                           # training phase so I removed them
+  mutate(y = y == &quot;yes&quot;) # transform to TRUE/FALSE
+
+# split the data into train/test sets.
+set.seed(123)
+idx &lt;- sample.int(nrow(allData), nrow(allData)*0.2)
+
+trainAll &lt;- allData[-idx,]
+testAll &lt;- allData[idx,]</code></pre>
+<p>For my ‘AL’ experiment I made a special workhorse function which handles nearly everything. As the last argument it takes a special function <code>get_new_idx</code> which returns the <code>rows_id</code> from <code>trainAll</code> data.frame to be added to <code>train</code> set in the next round. This simulates the active learning scheme. Data points selected by the <code>get_new_idx</code> would go to the oracle to be annotated.</p>
+<p>As a model performance score I’m using AUC.</p>
+<pre class="r"><code>#&#39; @param get_new_idx function which returns the selected rows
+#&#39; indexes to be labelled by the oracle. In this function the &#39;active learning&#39;
+#&#39; logic resides.
+make_active_learning_path &lt;- function(trainAll, testAll, nstart = 500, n = 50, k = 50, get_new_idx) {
+
+  # init training data set by selecting randomly nstart rows from 
+  # &#39;unlabelled&#39; data
+  idxInit &lt;- tibble(row_id = sample(trainAll$row_id, nstart))
+  train &lt;- inner_join(trainAll, idxInit, by = &quot;row_id&quot;)
+  trainAll &lt;- anti_join(trainAll, idxInit, by = &quot;row_id&quot;)
+
+  aucRes &lt;- rep(0, n)
+
+  for(i in 1:n) {
+
+    # build a classification model using simple logistics regression
+    fit &lt;- glm(y ~ ., data = train %&gt;% select(-row_id), family = &quot;binomial&quot;)
+
+    # calculate AUC
+    res &lt;- predict(fit, newdata = testAll, type=&quot;response&quot;)
+    aucRes[i] &lt;- suppressMessages(pROC::auc(testAll$y, res, ))
+
+    # select new indexes which will be added to the training set
+    newIdx &lt;- get_new_idx(trainAll, train, fit, k)
+
+    trainNew &lt;- inner_join(trainAll, newIdx, by = &quot;row_id&quot;)
+    train    &lt;- bind_rows(train, trainNew)
+    
+    # remove selected indexes from available &#39;unlabelled&#39; set.
+    trainAll &lt;- anti_join(trainAll, newIdx,by = &quot;row_id&quot;) 
+  }
+  
+  return(aucRes)
+}</code></pre>
+<div id="first-experiment---the-most-uncertain-points-vs-random-sample." class="section level2">
+<h2>First experiment - the most uncertain points vs random sample.</h2>
+<p>In the first attempt I’ll use a function which selects data points for which the model is the most uncertain - in the binary classification task those will be the case where the estimated probability is closest to 0.5:</p>
+<pre class="r"><code>get_new_idx_most_uncertain &lt;- function(trainAll, train, fit, k) {
+    predTrainLeftout &lt;- predict(fit, newdata = trainAll, type=&quot;response&quot;)
+    tr &lt;- trainAll %&gt;% mutate(predTrainLeftout = predTrainLeftout) %&gt;% arrange(abs(predTrainLeftout - 0.5))
+    tr %&gt;% select(row_id) %&gt;% head(k)
+}</code></pre>
+<p>The second function selects the rows at random. There’s nothing fancy in here:</p>
+<pre class="r"><code>get_new_idx_random &lt;- function(trainAll, train, fit, k) {
+  trainAll %&gt;% sample_n(k, replace = FALSE) %&gt;% select(row_id)
+}</code></pre>
+<p>Let’s run the first two experiments:</p>
+<pre class="r"><code># utility function to transform pbreplicate result into data.frame
+transform_run &lt;- function(x) {
+  xx &lt;- t(x)
+  colnames(xx) &lt;- 1:ncol(xx)
+  rownames(xx) &lt;- 1:nrow(xx)
+  res &lt;- bind_cols(tibble(iter = 1:nrow(xx)), as.data.frame(xx))
+  res &lt;- pivot_longer(res, cols = c(-iter), names_to = &quot;round&quot;, values_to = &quot;AUC&quot;)
+  res
+}
+
+## performing 20 replications of each simulations
+set.seed(123)
+mostUncertain &lt;- pbapply::pbreplicate(
+  50,
+  make_active_learning_path(trainAll, testAll, get_new_idx = get_new_idx_most_uncertain)
+  ) %&gt;% transform_run %&gt;% mutate(Type = &quot;1. Most uncertain&quot;)
+
+set.seed(123)
+allRandom &lt;- pbapply::pbreplicate(
+  50,
+  make_active_learning_path(trainAll, testAll, get_new_idx = get_new_idx_random)
+  ) %&gt;% transform_run %&gt;% mutate(Type = &quot;0. Random&quot;)</code></pre>
+<p>Some code to visualize the result:</p>
+<pre class="r"><code>make_plot &lt;- function(result, addRibbon = FALSE) {
+  result2 &lt;- result %&gt;% 
+    group_by(round, Type) %&gt;%
+    summarise(
+      AUC_Mean = mean(AUC),
+      SD = sd(AUC),
+      q025 = quantile(AUC, probs = 0.025),
+      q975 = quantile(AUC, probs = 0.975))
+  
+  p &lt;- ggplot(result2 %&gt;% mutate(round = as.integer(round))) +
+    geom_line(aes(round, AUC_Mean, color = Type), size = 1.5) + 
+    theme_bw()
+
+  if(addRibbon) {
+    p &lt;- p +
+      geom_ribbon(aes(round, ymax = q025, ymin = q975, fill = Type), alpha = 0.2)
+  }
+
+  return(p)
+}</code></pre>
+<p>And there it is (each round means additional <code>k</code> samples added to training set, the higher the curve is located the better). Here I was really surprised, because I expected that selecting the points for which the model is the most uncertain would be much better than random sampling, but the opposite is true!</p>
+<p>What could be the reason?</p>
+<pre class="r"><code>make_plot(bind_rows(mostUncertain, allRandom))</code></pre>
+<p><img src="/post/2020-07-19-active-learning-part-1_files/figure-html/unnamed-chunk-9-1.png" width="672" /></p>
+<p>I think for this data set the answer is imbalance in the training data. The most uncertain point is not the <code>50%</code> but <code>~11%</code>, because if we would not have any model (and we would just use the percentage of <code>yes</code> answers) we should assume that the probability of <code>yes</code> is around <code>11%</code>, not <code>50%</code>.</p>
+<pre class="r"><code>mean(allData$y)</code></pre>
+<pre><code>## [1] 0.1169848</code></pre>
+<p>So, let’s adjust the rows selecting function to take care of the class imbalance (the only change is to replace <code>0.5</code> with <code>mean(train$y)</code>):</p>
+<pre class="r"><code>get_new_idx_most_uncertain2 &lt;- function(trainAll, train, fit, k) {
+    predTrainLeftout &lt;- predict(fit, newdata = trainAll, type=&quot;response&quot;)
+    tr &lt;- trainAll %&gt;% mutate(predTrainLeftout = predTrainLeftout) %&gt;% arrange(abs(predTrainLeftout - mean(train$y)))
+    tr %&gt;% select(row_id) %&gt;% head(k)
+}
+
+set.seed(123)
+mostUncertain2 &lt;- pbapply::pbreplicate(
+  50,
+  make_active_learning_path(trainAll, testAll, get_new_idx = get_new_idx_most_uncertain2)
+  ) %&gt;% transform_run %&gt;% mutate(Type = &quot;2. Most uncertain - sample based&quot;)</code></pre>
+<p>As I was expecting, the result looks much better than the first version, but it’s still worse than random selection.</p>
+<pre class="r"><code>make_plot(bind_rows(mostUncertain, mostUncertain2, allRandom))</code></pre>
+<p><img src="/post/2020-07-19-active-learning-part-1_files/figure-html/unnamed-chunk-12-1.png" width="672" /></p>
+<p>It seems unintuitive, but it makes sense. To score which points should be taken into account I took only raw probability estimates, completely ignoring errors from the model. For one point the estimate might be <code>26% +- 5%</code> and for another <code>26% +- 20%</code>. In my case both points are treated equally, which seems wrong. See an example here:</p>
+<pre class="r"><code>set.seed(123)
+fit &lt;- glm(y ~ ., data = trainAll %&gt;% select(-row_id) %&gt;% sample_n(500), family = &quot;binomial&quot;)
+
+pred &lt;- predict(fit, se.fit = TRUE)
+pred &lt;- tibble(link = pred$fit, se.fit = pred$se.fit) %&gt;% arrange(desc(link))
+
+pred[51:54,] %&gt;%
+  mutate(Prob = plogis(link), Prob_1se = plogis(link + se.fit)) %&gt;%
+  mutate_all(function(x) round(x, digits = 3)) %&gt;% 
+  kable()</code></pre>
+<table>
+<thead>
+<tr class="header">
+<th align="right">link</th>
+<th align="right">se.fit</th>
+<th align="right">Prob</th>
+<th align="right">Prob_1se</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td align="right">-1.161</td>
+<td align="right">0.938</td>
+<td align="right">0.239</td>
+<td align="right">0.445</td>
+</tr>
+<tr class="even">
+<td align="right">-1.167</td>
+<td align="right">0.679</td>
+<td align="right">0.237</td>
+<td align="right">0.380</td>
+</tr>
+<tr class="odd">
+<td align="right">-1.172</td>
+<td align="right">0.837</td>
+<td align="right">0.236</td>
+<td align="right">0.417</td>
+</tr>
+<tr class="even">
+<td align="right">-1.178</td>
+<td align="right">0.926</td>
+<td align="right">0.235</td>
+<td align="right">0.437</td>
+</tr>
+</tbody>
+</table>
+<p>Some in the next experiment I will select those points where the standard error is the biggest. See the code below:</p>
+<pre class="r"><code>get_new_idx_most_uncertain3_stdErr_based &lt;- function(trainAll, train, fit, k) {
+    stdErr &lt;- predict(fit, newdata = trainAll, se.fit = TRUE)$se.fit
+    tr &lt;- trainAll %&gt;% mutate(stdErr = stdErr) %&gt;% arrange(desc(stdErr))
+    tr %&gt;% select(row_id) %&gt;% head(k)
+}
+
+set.seed(123)
+mostUncertain3StdErrBased &lt;- pbapply::pbreplicate(
+  50,
+  make_active_learning_path(
+    trainAll, testAll,
+    get_new_idx = get_new_idx_most_uncertain3_stdErr_based)
+  ) %&gt;% transform_run %&gt;% mutate(Type = &quot;3. Most uncertain - std.err based&quot;)</code></pre>
+<p>The idea looked promising, but the reality is tough. This is the worst strategy from all four. Selecting by random is still the best. After some mediation on this result I conclude that this might not be the best idea, because it selects the most noisy points which probably bring much more noise than a good quality signal.</p>
+<pre class="r"><code>make_plot(bind_rows(mostUncertain, mostUncertain2, allRandom, mostUncertain3StdErrBased))</code></pre>
+<p><img src="/post/2020-07-19-active-learning-part-1_files/figure-html/unnamed-chunk-15-1.png" width="672" /></p>
+<p>My last idea for now is to remove points with very high standard error. To do this, I’m filtering out everything points with a standard error greater than its <code>97.5%</code> quantile.</p>
+<pre class="r"><code>get_new_idx_most_uncertain3_stdErr_trimmed &lt;- function(trainAll, train, fit, k) {
+    stdErr &lt;- predict(fit, newdata = trainAll, se.fit = TRUE)$se.fit
+    tr &lt;- trainAll %&gt;% mutate(stdErr = stdErr) %&gt;% arrange(desc(stdErr))
+    tr &lt;- tr %&gt;% filter(stdErr &lt; quantile(stdErr, probs = 0.975))
+    
+    tr %&gt;% select(row_id) %&gt;% head(k)
+}
+
+set.seed(123)
+mostUncertain3StdErrTrimmed &lt;- pbapply::pbreplicate(
+  50,
+  make_active_learning_path(
+    trainAll, testAll,
+    get_new_idx = get_new_idx_most_uncertain3_stdErr_trimmed)
+  ) %&gt;% transform_run %&gt;% mutate(Type = &quot;4. Most uncertain - std.err trimmed&quot;)</code></pre>
+<p>Aaand… This is still bad solution. Not as bad as the previous one, but still.</p>
+<pre class="r"><code>make_plot(
+  bind_rows(mostUncertain, mostUncertain2, 
+            allRandom, mostUncertain3StdErrBased,
+            mostUncertain3StdErrTrimmed))</code></pre>
+<p><img src="/post/2020-07-19-active-learning-part-1_files/figure-html/unnamed-chunk-17-1.png" width="672" /></p>
+</div>
+<div id="summary" class="section level2">
+<h2>Summary</h2>
+<p>Active learning is an interesting idea. It’s very exciting that simple and crude solutions do not work very well. It’s really a place where good theory should thrive (or at least be better than random sampling:)). I will probably do a little more experiments in this area to build more intuitions before digging into proper, well-founded methods.</p>
+</div>
