@@ -22,7 +22,7 @@ library(tidyr)
 library(dplyr)
 library(ggplot2)
 library(FSelectorRcpp)
-knitr::opts_chunk$set(cache = TRUE, warning = FALSE, message = FALSE, eval = TRUE)</code></pre>
+knitr::opts_chunk$set(cache = FALSE, warning = FALSE, message = FALSE, eval = TRUE)</code></pre>
 <p>To make some simulations, it’s good to have some data. I grabbed a dataset from <a href="https://archive.ics.uci.edu/ml/index.php" class="uri">https://archive.ics.uci.edu/ml/index.php</a>. Below there’s a code to download and unzip the data into <code>tmp</code> directory.</p>
 <pre class="r"><code># https://stackoverflow.com/questions/16474696/read-system-tmp-dir-in-r
 gettmpdir &lt;- function() {
