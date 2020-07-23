@@ -7,18 +7,35 @@ tags:
   - r
   - active-learning
   - machine-learning
+  - rpkg-FSelectorRcpp
 ---
 
-I just started exploring the 'active learning' topic. It's a very handy tool when the number of data points to build a model is limited and labelling new points is costly. It allows to determine which points should be labelled next to bring the most gain in model performance. In this post I will cover some of my small experiments in this area.
-
-Caution!
-
-If you're interested in ready-to-use tools for active learning, this post might not be for you - I don't cover any framework here. It's all about fun (for me) and building some intuitions.
+Second post in the 'Active Learning' series. This time I will explore the the 'exploration vs exploitation' concept.
 
 <!--more-->
-## Entropy based 'active learning'.
 
-In the second step 
+Let's start with some intuitions. Each classification algorithm relies on some relations between variables and predicted classes. This is more or less clear. The stronger the relationship, the better (more accurate the model is). Now lets assume that we have a sample of `N` observations. Based on that sample we should be able to estimate a variable importance (e.g. from random forest or using other algorithm, I'll be using `information_gain` from `FSelectorRcpp` package).
+
+```{r}
+library(FSelectorRcpp)
+library(dplyr)
+
+set.seed(123)
+ir20 <- iris %>% sample_n(20)
+information_gain(Species ~ ., ir20)
+```
+### Exploitation
+
+The higher value the more important the variable is. From this sample it looks like the most important is the `Petal.Width`. Based on that knowledge we might construct an *active learning* algorithm with promotes this particular variable in the selection process. We found a signal, which might be a little bit noisy because of a small sample, so we want to do as much as possible to refine it as fast as possible. This might be a good strategy - to stick for something that works. However, in a longer run it might (and probably will) lead to local optimum and over-fitting.
+
+### Exploration
+
+On the opposite site there's random strategy where an algorithm explores the data space by random sampling, which might lead to discoveries of stronger and better relationships with target value. 
+### Exploration vs Exploitation
+
+Based on my intuition I think that those two are in a opposition - you cannot have both. The best possible scenario is to have a mixture which balances those two. It seems to be a similar idea that is behind *simulated annealing* where there's some probability of big jump to overcome current local optima. Of course in simulated annealing the chances of big jumps decreases over time but here it probably should increase because of diminishing return from exploitation of current best signal.
+
+Of course the intuitions presented above are just intuitions and they're lacking of mathematical rigour. However I like to have some preconceptions and then compare them with formal theory and simulations. It makes the learning process much more fun and surprising (sometimes it blows my mind how naive my intuitions were).
 
 ```{r}
 get_new_idx_entropy <- function(trainAll, train, fit, k) {
