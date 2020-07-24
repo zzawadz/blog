@@ -37,14 +37,44 @@ Based on my intuition I think that those two are in a opposition - you cannot ha
 
 Of course the intuitions presented above are just intuitions and they're lacking of mathematical rigour. However I like to have some preconceptions and then compare them with formal theory and simulations. It makes the learning process much more fun and surprising (sometimes it blows my mind how naive my intuitions were).
 
+## No more intuitions - let's do some simulations.
+
+I'll use the same code that I used in the first post. So for more information about the simulation please go there. The code is hidden to not pollute the post space.
+
+In this simulation I will try to use an entropy to guide the new samples selecting process. In each round I'll select the samples for which the entropy gain is highest. See the examples below:
+
+
 ```{r}
+xx <- c("x", "x", "x", "x", "y")
+(currentEntropy <- FSelectorRcpp:::fs_entropy1d(xx))
+(addX <- FSelectorRcpp:::fs_entropy1d(c(xx, "x")))
+(addY <- FSelectorRcpp:::fs_entropy1d(c(xx, "y")))
+
+# in this example the sample containing Y would be selected
+addX - currentEntropy
+addY - currentEntropy 
+```
+For the simplicity of the implementation I'll assume that all the variables are independent, so for evaluating a total entropy gain for a given sample I'll just sum variables' individual entropies gains.
+
+```{r}
+# the code below looks a little bit complicated but it does what's expected :)
 get_new_idx_entropy <- function(trainAll, train, fit, k) {
 
-      tt <- suppressWarnings(train %>% select(-row_id) %>% discretize(y ~ .) %>% extract_discretize_transformer())
+      # suppress warnings to hide warnings from discretize
+      # which are rised when the discretization can't be performed
+      tt <- suppressWarnings(train %>% select(-row_id) %>%
+                               discretize(y ~ .) %>%
+                               extract_discretize_transformer())
+      
+      # discretize the traingAll data - this is the search space in
+      # which all the samples to select from resides.
       dt <- trainAll %>% discretize_transform(disc = tt) %>% select(-y)
       tr <- discretize_transform(disc = tt, data = train) %>% select(-y)
 
-      colNames <- head(colnames(dt),-1)
+      
+      colNames <- head(colnames(dt),-1) # remove row_id column - it's the last one
+      
+      # calculate the change in entropy by adding each value
       res <- setNames(lapply(colNames, function(nm) {
         ent <- FSelectorRcpp:::fs_entropy1d(tr[[nm]])
         rr <- sapply(unique(dt[[nm]]), function(x) {
@@ -55,16 +85,157 @@ get_new_idx_entropy <- function(trainAll, train, fit, k) {
         colnames(rr)[1] <- nm
         rr
       }), colNames)
-
+      
+      # add change in entropy value to the main table
       dt2 <- dt
       for(ii in res) {
         dt2 <- inner_join(dt2, ii, by = colnames(ii)[[1]])
       }
 
+      # sum entropy change for each row.
       dt2 <- dt2 %>% mutate(entrChange = rowSums(dt2 %>% select(contains("value"))))
+      
+      # select the rows with the biggest change.
       dt2 %>% arrange(desc(entrChange)) %>% select(row_id) %>% head(k)
 }
+```
 
+```{r}
+dataPath <- file.path("/tmp/data/", "bank-full.csv")
+# read data and split into test/traings sets
+library(readr)
+allData <- readr::read_delim(dataPath, delim = ";", 
+  col_types = readr::cols(
+  age = col_double(),
+  job = col_character(),
+  marital = col_character(),
+  education = col_character(),
+  default = col_character(),
+  balance = col_double(),
+  housing = col_character(),
+  loan = col_character(),
+  contact = col_character(),
+  day = col_double(),
+  month = col_character(),
+  duration = col_double(),
+  campaign = col_double(),
+  pdays = col_double(),
+  previous = col_double(),
+  poutcome = col_character(),
+  y = col_character()
+  ))
+
+allData <- allData %>%
+  mutate(row_id = row_number()) %>%
+  select(-month, -job) %>% # I have a problem with those two columns during 
+                           # training phase so I removed them
+  mutate(y = y == "yes") # transform to TRUE/FALSE
+
+# split the data into train/test sets.
+set.seed(123)
+idx <- sample.int(nrow(allData), nrow(allData)*0.2)
+
+trainAll <- allData[-idx,]
+testAll <- allData[idx,]
+
+#' @param get_new_idx function which returns the selected rows
+#' indexes to be labelled by the oracle. In this function the 'active learning'
+#' logic resides.
+make_active_learning_path <- function(trainAll, testAll, nstart = 500, n = 50, k = 50, get_new_idx) {
+
+  # init training data set by selecting randomly nstart rows from 
+  # 'unlabelled' data
+  idxInit <- tibble(row_id = sample(trainAll$row_id, nstart))
+  train <- inner_join(trainAll, idxInit, by = "row_id")
+  trainAll <- anti_join(trainAll, idxInit, by = "row_id")
+
+  aucRes <- rep(0, n)
+
+  for(i in 1:n) {
+
+    # build a classification model using simple logistics regression
+    fit <- glm(y ~ ., data = train %>% select(-row_id), family = "binomial")
+
+    # calculate AUC
+    res <- predict(fit, newdata = testAll, type="response")
+    aucRes[i] <- suppressMessages(pROC::auc(testAll$y, res, ))
+
+    # select new indexes which will be added to the training set
+    newIdx <- get_new_idx(trainAll, train, fit, k)
+
+    trainNew <- inner_join(trainAll, newIdx, by = "row_id")
+    train    <- bind_rows(train, trainNew)
+    
+    # remove selected indexes from available 'unlabelled' set.
+    trainAll <- anti_join(trainAll, newIdx,by = "row_id") 
+  }
+  
+  return(aucRes)
+}
+
+get_new_idx_random <- function(trainAll, train, fit, k) {
+  trainAll %>% sample_n(k, replace = FALSE) %>% select(row_id)
+}
+
+make_plot <- function(result, addRibbon = FALSE) {
+  result2 <- result %>% 
+    group_by(round, Type) %>%
+    summarise(
+      AUC_Mean = mean(AUC),
+      SD = sd(AUC),
+      q025 = quantile(AUC, probs = 0.025),
+      q975 = quantile(AUC, probs = 0.975))
+  
+  p <- ggplot(result2 %>% mutate(round = as.integer(round))) +
+    geom_line(aes(round, AUC_Mean, color = Type), size = 1.5) + 
+    theme_bw()
+
+  if(addRibbon) {
+    p <- p +
+      geom_ribbon(aes(round, ymax = q025, ymin = q975, fill = Type), alpha = 0.2)
+  }
+
+  return(p)
+}
+
+transform_run <- function(x) {
+  xx <- t(x)
+  colnames(xx) <- 1:ncol(xx)
+  rownames(xx) <- 1:nrow(xx)
+  res <- bind_cols(tibble(iter = 1:nrow(xx)), as.data.frame(xx))
+  res <- pivot_longer(res, cols = c(-iter), names_to = "round", values_to = "AUC")
+  res
+}
+
+set.seed(123)
+allRandom <- pbapply::pbreplicate(
+  50,
+  make_active_learning_path(trainAll, testAll, get_new_idx = get_new_idx_random)
+  ) %>% transform_run %>% mutate(Type = "0. Random")
+
+```
+
+```{r}
+
+set.seed(123)
+entrRes <- pbapply::pbreplicate(
+  50,
+  make_active_learning_path(trainAll, testAll, get_new_idx = get_new_idx_entropy)
+) %>% transform_run %>% mutate(Type = "1. Entropy")
+
+
+```
+
+The result is not bad. At the begining 
+
+
+```{r}
+make_plot(bind_rows(allRandom, entrRes))
+```
+
+## Second experiment - entropy scaled by information gain.
+
+```{r}
 ######### entropy2
 get_new_idx_entropy_information_gain <- function(trainAll, train, fit, k) {
 
