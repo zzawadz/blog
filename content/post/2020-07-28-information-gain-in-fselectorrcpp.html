@@ -1,0 +1,93 @@
+---
+title: Information gain in FSelectorRcpp
+author: Zygmunt Zawadzki
+date: '2020-07-28'
+slug: information-gain-in-fselectorrcpp
+tags:
+  - rpkg-fselectorrcpp
+  - machine-learning
+  - feature-selection
+---
+
+
+
+<p><em>Some intuitions behind the Information Gain, Gain ratio and Symmetrical Uncertain calculated by the FSelectorRcpp package, that can be a good proxy for correlation between unordered factors.</em></p>
+<!--more-->
+<p>I a big fan of using <code>FSelectorRcpp</code> in the exploratory phase to get some overview about the data. The main workhorse is the <code>information_gain</code> function which calculates… information gain. But how to interpret the output of this function?</p>
+<p>To understand this, you need to know a bit about <code>entropy</code>. The good place is its Wikipedia page -
+<a href="https://en.wikipedia.org/wiki/Entropy_(information_theory)" class="uri">https://en.wikipedia.org/wiki/Entropy_(information_theory)</a>. If you don’t know anything about entropy from the information theory please start there.</p>
+<p>Now go the code. To calculate the entropy in <code>FSelectorRcpp</code> all variables must be categorized (<code>factor</code> or <code>character</code>). By default <code>information_gain</code> automatically discretizes numeric values using so called <code>MDL</code> algorithm (it’s not this post, so it won’t be covered there). But I’ll go step by step and discretize all the values on my own.</p>
+<pre class="r"><code>library(FSelectorRcpp)
+
+disc &lt;- discretize(Species ~ ., iris)
+head(disc)</code></pre>
+<pre><code>##   Sepal.Length Sepal.Width Petal.Length Petal.Width Species
+## 1  (-Inf,5.55] (3.35, Inf]  (-Inf,2.45]  (-Inf,0.8]  setosa
+## 2  (-Inf,5.55] (2.95,3.35]  (-Inf,2.45]  (-Inf,0.8]  setosa
+## 3  (-Inf,5.55] (2.95,3.35]  (-Inf,2.45]  (-Inf,0.8]  setosa
+## 4  (-Inf,5.55] (2.95,3.35]  (-Inf,2.45]  (-Inf,0.8]  setosa
+## 5  (-Inf,5.55] (3.35, Inf]  (-Inf,2.45]  (-Inf,0.8]  setosa
+## 6  (-Inf,5.55] (3.35, Inf]  (-Inf,2.45]  (-Inf,0.8]  setosa</code></pre>
+<p>Then calculating <code>information_gain</code> looks like this:</p>
+<pre class="r"><code># calling the information_gain on iris
+# would give the same result
+# information_gain(Species ~ ., iris) 
+information_gain(Species ~ ., disc)</code></pre>
+<pre><code>##     attributes importance
+## 1 Sepal.Length  0.4521286
+## 2  Sepal.Width  0.2672750
+## 3 Petal.Length  0.9402853
+## 4  Petal.Width  0.9554360</code></pre>
+<p>The theory tells us that information gain is defined as <span class="math inline">\(H(Class) + H(Attribute) - H(Class, Attribute)\)</span> where <span class="math inline">\(H(X)\)</span> is Shannon’s Entropy and <span class="math inline">\(H(X, Y)\)</span> is a conditional Shannon’s Entropy for a variable X with a condition to Y.</p>
+<p>So now we calculate the information step by step:</p>
+<pre class="r"><code># function to calculate entropy
+entropy &lt;- function(x) {
+  n &lt;- table(x)
+  p &lt;- n/sum(n)
+  -sum(p*log(p))
+}
+x &lt;- entropy(disc$Sepal.Length) # H(Attribute)
+y &lt;- entropy(disc$Species) # H(Class)
+
+# This step is quite fun, because to calculate conditional entropy you can 
+# just glue the values together (think a little bit on the equation from wikipedia
+# and it will become obvious).
+xy &lt;- entropy(paste(disc$Sepal.Length, disc$Species)) # H(Class, Attribute)</code></pre>
+<p>So the final information gain is equal to:</p>
+<pre class="r"><code>x + y - xy</code></pre>
+<pre><code>## [1] 0.4521286</code></pre>
+<p>Note that conditional entropy is equal to <span class="math inline">\(H(X) + H(y) = H(x,y)\)</span> when there’s no relation between <span class="math inline">\(x\)</span> and <span class="math inline">\(y\)</span> (in this case the information gain will be zero).</p>
+<pre class="r"><code>entropy(disc$Species)</code></pre>
+<pre><code>## [1] 1.098612</code></pre>
+<pre class="r"><code>set.seed(123)
+# sample function used to destroy relation between variables
+entropy(paste(sample(disc$Species), sample(disc$Species)))</code></pre>
+<pre><code>## [1] 2.178778</code></pre>
+<div id="gain-ratio-and-symmetrical-uncertain" class="section level2">
+<h2>Gain ratio and Symmetrical Uncertain</h2>
+<p><code>FSelectorRcpp</code> allows to use two another methods to calculate feature importance based on the entropy and the information gain measure.</p>
+<ul>
+<li>Gain ratio - defined as <span class="math inline">\((H(Class) + H(Attribute) - H(Class, Attribute)) / H(Attribute)\)</span>.</li>
+<li>Symmetrical Uncertain - equal to <span class="math inline">\(2 * (H(Class) + H(Attribute) - H(Class, Attribute)) / (H(Attribute) + H(Class))\)</span>.</li>
+</ul>
+<p>Both scales the information gain into <span class="math inline">\([0,1]\)</span> range (zero when there’s no relation, and 1 for perfect dependability).</p>
+<pre class="r"><code>information_gain(Species ~ ., disc, type = &quot;gainratio&quot;)</code></pre>
+<pre><code>##     attributes importance
+## 1 Sepal.Length  0.4196464
+## 2  Sepal.Width  0.2472972
+## 3 Petal.Length  0.8584937
+## 4  Petal.Width  0.8713692</code></pre>
+<pre class="r"><code>information_gain(Species ~ ., disc, type = &quot;symuncert&quot;)</code></pre>
+<pre><code>##     attributes importance
+## 1 Sepal.Length  0.4155563
+## 2  Sepal.Width  0.2452743
+## 3 Petal.Length  0.8571872
+## 4  Petal.Width  0.8705214</code></pre>
+<p><strong><em>Note that because both values are defined on the <span class="math inline">\([0,1]\)</span> range they can be a proxy for correlation between two unordered factors (which sometimes is useful).</em></strong></p>
+</div>
+<div id="other-resources" class="section level2">
+<h2>Other resources:</h2>
+<ul>
+<li><a href="https://victorzhou.com/blog/information-gain/" class="uri">https://victorzhou.com/blog/information-gain/</a> - information gain from the Decision Trees perspective.</li>
+</ul>
+</div>

@@ -1,0 +1,91 @@
+---
+title: Information gain in FSelectorRcpp
+author: Zygmunt Zawadzki
+date: '2020-07-28'
+slug: information-gain-in-fselectorrcpp
+tags:
+  - rpkg-fselectorrcpp
+  - machine-learning
+  - feature-selection
+---
+
+*Some intuitions behind the Information Gain, Gain ratio and Symmetrical Uncertain calculated by the FSelectorRcpp package, that can be a good proxy for correlation between unordered factors.*
+
+<!--more-->
+
+I a big fan of using `FSelectorRcpp` in the exploratory phase to get some overview about the data. The main workhorse is the `information_gain` function which calculates... information gain. But how to interpret the output of this function?
+
+To understand this, you need to know a bit about `entropy`. The good place is its Wikipedia page -
+https://en.wikipedia.org/wiki/Entropy_(information_theory). If you don't know anything about entropy from the information theory please start there.
+
+Now go the code. To calculate the entropy in `FSelectorRcpp` all variables must be categorized (`factor` or `character`). By default `information_gain` automatically discretizes numeric values using so called `MDL` algorithm (it's not this post, so it won't be covered there). But I'll go step by step and discretize all the values on my own.
+
+```{r}
+library(FSelectorRcpp)
+
+disc <- discretize(Species ~ ., iris)
+head(disc)
+```
+
+Then calculating `information_gain` looks like this:
+
+```{r}
+# calling the information_gain on iris
+# would give the same result
+# information_gain(Species ~ ., iris) 
+information_gain(Species ~ ., disc)
+```
+The theory tells us that information gain is defined as $H(Class) + H(Attribute) - H(Class, Attribute)$ where $H(X)$ is Shannon's Entropy and $H(X, Y)$ is a conditional Shannon's Entropy for a variable X with a condition to Y.
+
+So now we calculate the information step by step:
+
+```{r}
+# function to calculate entropy
+entropy <- function(x) {
+  n <- table(x)
+  p <- n/sum(n)
+  -sum(p*log(p))
+}
+x <- entropy(disc$Sepal.Length) # H(Attribute)
+y <- entropy(disc$Species) # H(Class)
+
+# This step is quite fun, because to calculate conditional entropy you can 
+# just glue the values together (think a little bit on the equation from wikipedia
+# and it will become obvious).
+xy <- entropy(paste(disc$Sepal.Length, disc$Species)) # H(Class, Attribute)
+```
+
+So the final information gain is equal to:
+
+```{r}
+x + y - xy
+```
+
+Note that conditional entropy is equal to $H(X) + H(y) = H(x,y)$ when there's no relation between $x$ and $y$ (in this case the information gain will be zero).
+
+```{r}
+entropy(disc$Species)
+set.seed(123)
+# sample function used to destroy relation between variables
+entropy(paste(sample(disc$Species), sample(disc$Species)))
+```
+
+## Gain ratio and Symmetrical Uncertain
+
+`FSelectorRcpp` allows to use two another methods to calculate feature importance based on the entropy and the information gain measure.
+
+- Gain ratio - defined as $(H(Class) + H(Attribute) - H(Class, Attribute)) / H(Attribute)$.
+- Symmetrical Uncertain - equal to $2 * (H(Class) + H(Attribute) - H(Class, Attribute)) / (H(Attribute) + H(Class))$.
+
+Both scales the information gain into $[0,1]$ range (zero when there's no relation, and 1 for perfect dependability).
+
+```{r}
+information_gain(Species ~ ., disc, type = "gainratio")
+information_gain(Species ~ ., disc, type = "symuncert")
+```
+
+***Note that because both values are defined on the $[0,1]$ range they can be a proxy for correlation between two unordered factors (which sometimes is useful).***
+
+## Other resources:
+
+- https://victorzhou.com/blog/information-gain/ - information gain from the Decision Trees perspective.
