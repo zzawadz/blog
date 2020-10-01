@@ -1,0 +1,83 @@
+---
+title: 'thief: Temporal HIErarchical Forecasting'
+author: Zygmunt Zawadzki
+date: '2020-09-18'
+slug: thief-temporal-hierarchical-forecasting
+categories: []
+tags: []
+cover: /img/cover.jpg
+---
+
+Cut out summary from your post content here.
+
+<!--more-->
+
+```{r}
+# Example taken from ?reconcilethief
+library(thief)
+set.seed(123)
+aggts <- tsaggregates(USAccDeaths)
+
+fc <- list()
+for(i in seq_along(aggts))
+  fc[[i]] <- forecast(auto.arima(aggts[[i]]), h=2*frequency(aggts[[i]]))
+
+# Reconcile forecasts
+reconciled <- reconcilethief(fc)
+```
+
+```{r, fig.height=12, dev.args=list(pointsize=28)}
+library(customLayout)
+# Plot forecasts before and after reconcilation
+
+lay <- customLayout::lay_bind_row(
+  customLayout::lay_new(1),
+  customLayout::lay_new(cbind(1,2)),
+  heights = c(2,1)
+)
+
+lay2 <- lay_bind_row(
+  lay,
+  customLayout::lay_new(cbind(1,2,3)),
+  heights = c(3,1)
+)
+
+lay_set(lay2)
+
+for(i in rev(seq_along(fc))) {
+  plot(reconciled[[i]], main=names(aggts)[i], fcol = "blue")
+  lines(fc[[i]]$mean, col='red')
+  if(i == max(length(fc))) legend("topleft", c("Standard", "Reconciled"), lwd = 3, col = c("red", "blue"))
+}
+
+```
+
+```{r}
+library(fpp2)
+data(gasoline)
+
+plot(gasoline)
+frequency(gasoline) <- 52
+set.seed(123)
+
+make_thief_forecast <- function(x) {
+  aggts <- tsaggregates(x)
+
+  fc <- list()
+  for(i in seq_along(aggts))
+    fc[[i]] <- forecast(
+      auto.arima(aggts[[i]]), 
+      h=2*frequency(aggts[[i]]))
+  
+  
+  freq <- unlist(lapply(forecasts, frequency))
+  lengths <- unlist(lapply(forecasts, length))
+  
+  # Reconcile forecasts
+  reconciled <- reconcilethief(fc)
+  reconciled
+}
+
+fcThief <- make_thief_forecast(gasoline)
+
+```

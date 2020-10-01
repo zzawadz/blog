@@ -1,0 +1,60 @@
+---
+title: Own CRAN
+author: Zygmunt Zawadzki
+date: '2018-09-18'
+slug: own-cran
+categories: []
+tags: []
+---
+
+https://community.rstudio.com/t/internal-cran-like-system-best-practices/2461/16
+https://github.com/sellorm/alsoran
+https://github.com/sonatype-nexus-community/nexus-repository-r/blob/master/docs/R_USER_DOCUMENTATION.md#hosting-r-repositories
+https://cran.r-project.org/web/packages/miniCRAN/index.html
+https://cran.r-project.org/web/packages/drat/index.html
+https://mran.microsoft.com/documents/rro/reproducibility
+https://cran.r-project.org/web/packages/GRANBase/index.html
+
+```{r, eval=FALSE}
+#install.packages("checkpoint")
+library(checkpoint)
+checkpoint::checkpoint("2016-01-01")
+```
+
+```{r}
+"https://github.com/sellorm/alsoran"
+
+alsoCranUrl <- "https://github.com/sellorm/alsoran/archive/master.zip"
+alsocranDownloadPath <- "~/Downloads/alsocran.zip"
+alsocranPath <- "~/alsocran"
+download.file(alsoCranUrl, alsocranDownloadPath)
+unzip(alsocranDownloadPath, exdir = alsocranPath)
+```
+
+```{r}
+alsocranPath <- file.path(alsocranPath, "alsoran-master")
+```
+
+https://mran.microsoft.com/snapshot/2018-01-01/src/contrib/
+
+```{r}
+options()
+library(miniCRAN)
+pth <- file.path(tempdir(), "miniCRAN")
+dir.create(pth)
+
+repos <- "https://mran.microsoft.com/snapshot/2018-09-30"
+pkgs <- c("customLayout")
+pkgList <- pkgDep(
+  pkgs, 
+  repos = repos, type = "source",
+  suggests = FALSE)
+
+makeRepo(pkgList, path = pth, repos = repos, type = c("source"))
+dir.exists(pth)
+tmp <- servr::httd(file.path(pth, "src"), port = 4562, daemon = TRUE)
+```
+
+```{r}
+available.packages(repos = "http://127.0.0.1:4562")
+```

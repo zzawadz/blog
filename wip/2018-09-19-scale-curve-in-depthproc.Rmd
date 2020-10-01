@@ -1,0 +1,88 @@
+---
+title: Scale Curve in DepthProc
+author: Zygmunt Zawadzki
+date: '2018-09-19'
+slug: scale-curve-in-depthproc
+categories: []
+tags: []
+---
+
+
+
+```{r}
+library(DepthProc)
+set.seed(123)
+sigma <- cbind(c(1,0.5), c(0.5,1))
+x <- MASS::mvrnorm(100, mu = c(0,0),
+  Sigma = sigma)
+```
+
+```{r}
+plot(x, xlab = "x", ylab = "y")
+```
+
+```{r}
+plot(x, xlab = "x", ylab = "y")
+hull  <- grDevices::chull(x)
+xhull <- x[c(hull, hull[1]),]
+lines(xhull, lwd = 2)
+
+ghull <- geometry::convhulln(x, options = "FA")
+ghull$vol
+```
+
+```{r}
+depths <- depthTukey(x, exact = TRUE)
+plot(x, cex = depths / max(depths) * 2, ylab = "", xlab = "", pch = 19)
+```
+
+```{r}
+ecdfDepths <- ecdf(depths)(depths)
+restrX <- x[ecdfDepths >= 0.25,]
+
+add_hull <- function(x, ...) {
+  hull  <- grDevices::chull(x)
+  xhull <- x[c(hull, hull[1]),]
+  lines(xhull, lwd = 2, ...)
+}
+
+plot(x)
+points(restrX, pch = 19)
+add_hull(restrX, col = "blue")
+
+ghull <- geometry::convhulln(restrX, options = "FA")
+ghull$vol
+```
+
+```{r}
+sc <- scaleCurve(x, depth_params = list(method = "Tukey", exact = TRUE))
+sc
+
+```
+
+```{r}
+y <- MASS::mvrnorm(100, mu = c(1,1), Sigma = sigma * 2)
+scY <- scaleCurve(y, name = "Y", depth_params = list(method = "Tukey", exact = TRUE))
+```
+
+```{r}
+combineDepthCurves(sc, scY)
+```
+
+
+```{r}
+N <- 500
+x <- rnorm(N)
+y <- rmutil::rlaplace(N, m = 0, s = sqrt(0.5))
+plot(density(x), xlim = c(-3,3))
+lines(density(y), col = "red")
+
+sd(x)
+sd(y)
+
+scx <- scaleCurve(x, depth_params = list(method = "Tukey", exact = TRUE))
+
+scy <- scaleCurve(y, depth_params = list(method = "Tukey", exact = TRUE), name = "Y")
+
+combineDepthCurves(scx, scy)
+```
