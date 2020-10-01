@@ -1,0 +1,101 @@
+---
+title: Record Linkage - generate data for Fellegi-Sunter Model
+author: Zygmunt Zawadzki
+date: '2020-10-01'
+slug: record-linkage-generate-data-for-fellegi-sunter-model
+tags:
+  - record-linkage
+  - rpkg-reclin
+---
+
+I'm a little fascinated with the record linkage topic. There are some nice ideas in that area. For example - the Fellegi-Sunter Model which uses the M and U probabilities to calculate a score which can make the matching. And the best part is the EM algorithm to estimate M and U with no external knowledge (you need not know which pairs match, no training data, etc).
+
+<!--more-->
+
+When the assumptions are met, it's obvious that the method must work. However, to better understand some method I like to simulate the data that follows specific model. Then I can make simulations and play with assumptions (e.g. what if I relax the assumption of independence, etc). After some experiments, I have a much better understanding in a topic.
+
+This time I played with Fellegi-Sunter.
+
+```{r}
+library(dplyr)
+library(reclin)
+library(customLayout)
+
+set.seed(123)
+N <- 1000
+
+## nn - number of different values for given column
+## 1/nn is the U probability
+nn <- c(2,10,100,500, 1000)
+mProbs <- c(0.99, 0.99, 0.97, 0.95, 0.90)
+
+simulation <- function(N, nn, mProbs) {
+
+  tbl1 <- lapply(nn, function(n)
+         sample.int(n, size = N, replace = TRUE)
+  ) %>% as.data.frame() %>% as_tibble()
+  colnames(tbl1) <- paste0("v", seq_along(tbl1))
+
+  # copy the data
+  tbl2 <- tbl1
+
+  # adjust each column in a loop using m-probability
+  for(i in seq_along(tbl1)) {
+    
+    # replaces value with different value when sampled value above M prob
+    p <- runif(N) > mProbs[[i]] 
+    while (any(p)) {
+      # make sure that different value will be selected
+      newVals <- sample.int(nn[i], sum(p), replace = TRUE)
+      org <- tbl2[[i]][p]
+      tbl2[[i]][p] <- newVals
+      p[p][org != newVals] <- FALSE
+    }
+  }
+
+  pairs <- pair_blocking(tbl1, tbl2)
+  pairs <- compare_pairs(pairs, colnames(tbl1))
+  model <- problink_em(pairs)
+  model
+}
+
+result <- simulation(N, nn, mProbs)
+result
+```
+
+### Distribution of estimates:
+
+```{r}
+
+
+simAll <- replicate(50, simulation(N, nn, mProbs), simplify = FALSE)
+
+mAll <- t(sapply(simAll, "[[", "mprobs"))
+
+plot_hist <- function(i, p, title = "M-prob") {
+  hist(unlist(mAll[,i]), main = paste0("V", i), xlab = title)
+  abline(v = p, lwd = 4, col = "red", lty = 2)
+  invisible()
+}
+
+
+lay <- customLayout::lay_bind_row(
+  customLayout::lay_new(cbind(1,2,3)),
+  customLayout::lay_new(cbind(1,2))
+)
+
+lay_set(lay)
+invisible(mapply(plot_hist, seq_along(mProbs), mProbs))
+```
+
+# Bibliography
+
+If you want to know more about record linkage, there're some good resources:
+
+1. Loo M PJ ,van,der. The stringdist Package for Approximate String Matching. The R Journal [Internet]. 2014 [cited 2020 Apr 13];6(1):111. Available from: https://journal.r-project.org/archive/2014/RJ-2014-011/index.html
+2. Sariyar M, Borg A. The RecordLinkage Package: Detecting Errors in Data. The R Journal [Internet]. 2010 [cited 2020 Apr 13];2(2):61–7. Available from: https://journal.r-project.org/archive/2010/RJ-2010-017/index.html
+3. Micro-Fusion-07-M-Fellegi-Sunter and Jaro Approach v1.0_0.pdf [Internet]. [cited 2020 Sep 25]. Available from: https://ec.europa.eu/eurostat/cros/system/files/Micro-Fusion-07-M-Fellegi-Sunter%20and%20Jaro%20Approach%20v1.0_0.pdf
+4. Harron K, Goldstein H, Dibben C. Methodological developments in data linkage. Chichester, West Sussex, United Kingdom: Wiley; 2016. 
+5. Herzog TN, Scheuren FJ, Winkler WE. Data quality and record linkage techniques. New York, NY: Springer; 2007. 227 p. 
+6. Christen P. Data matching: concepts and techniques for record linkage, entity resolution, and duplicate detection. Berlin ; New York: Springer; 2012. 270 p. (Data-centric systems and applications). 
+7. McDonald M. An Introduction to Probabilistic Record Linkage. :43. 
