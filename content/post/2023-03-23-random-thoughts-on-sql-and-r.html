@@ -7,6 +7,11 @@ tags:
   - R
   - rpkg-dbplyr
   - rpkg-dplyr
+  - SQL
+  - SQLite
+  - duckdb
+  - rpkg-sqldf
+  - rpkg-glue
 ---
 
 
@@ -115,7 +120,7 @@ DBI::dbExecute(con, sql_view)</code></pre>
 ## [5] &quot;sqlite_stat4&quot;</code></pre>
 <pre class="r"><code>tbl(con, &quot;iris_group_by&quot;)</code></pre>
 <pre><code>## # Source:   table&lt;iris_group_by&gt; [3 x 2]
-## # Database: sqlite 3.40.1 [/tmp/Rtmpw5T4oT/file23c0ad266adea3]
+## # Database: sqlite 3.40.1 [/tmp/RtmpZrU1d6/file23f83e4b00cac3]
 ##   Species    SEPAL_LEN_AVG
 ##   &lt;chr&gt;              &lt;dbl&gt;
 ## 1 setosa              5.01
@@ -155,7 +160,7 @@ DBI::dbExecute(con, sql_view)</code></pre>
 <pre><code>## [1] &quot;letter_avg&quot;   &quot;letter_table&quot; &quot;sqlite_stat1&quot; &quot;sqlite_stat4&quot;</code></pre>
 <pre class="r"><code>tbl(con, &quot;letter_avg&quot;)</code></pre>
 <pre><code>## # Source:   table&lt;letter_avg&gt; [?? x 2]
-## # Database: sqlite 3.40.1 [/tmp/Rtmpw5T4oT/file23c0ada899e28]
+## # Database: sqlite 3.40.1 [/tmp/RtmpZrU1d6/file23f83eca2a6e7]
 ##    letter AVG_VALUE
 ##    &lt;chr&gt;      &lt;dbl&gt;
 ##  1 A           65.0
@@ -189,13 +194,13 @@ DBI::dbExecute(con, sql_view)</code></pre>
 )</code></pre>
 <pre><code>## Unit: milliseconds
 ##                                                                expr       min
-##                                tbl(con, &quot;letter_avg&quot;) %&gt;% collect() 437.40853
-##                   tbl(con, &quot;letter_table_with_index&quot;) %&gt;% collect() 386.77535
-##  letter_table %&gt;% group_by(letter) %&gt;% summarise(avg = mean(value))  25.53868
+##                                tbl(con, &quot;letter_avg&quot;) %&gt;% collect() 463.28748
+##                   tbl(con, &quot;letter_table_with_index&quot;) %&gt;% collect() 405.55080
+##  letter_table %&gt;% group_by(letter) %&gt;% summarise(avg = mean(value))  27.88042
 ##         lq      mean    median        uq       max neval cld
-##  440.08261 444.80322 444.68745 448.22763 453.60988     5   c
-##  402.80887 402.38050 404.62750 406.15479 411.53601     5  b 
-##   28.39252  30.32159  29.58823  31.70435  36.38419     5 a</code></pre>
+##  464.53191 482.88718 489.75732 492.96234 503.89684     5   c
+##  410.16418 422.87106 425.01228 429.75398 443.87406     5  b 
+##   30.49285  34.06109  34.11852  37.92238  39.89127     5 a</code></pre>
 </div>
 <div id="cte" class="section level2">
 <h2>CTE</h2>
@@ -208,7 +213,7 @@ con &lt;- dbplyr::nycflights13_sqlite()
 
 tbl(con, &quot;airports&quot;)</code></pre>
 <pre><code>## # Source:   table&lt;airports&gt; [?? x 8]
-## # Database: sqlite 3.40.1 [/tmp/Rtmpw5T4oT/nycflights13.sqlite]
+## # Database: sqlite 3.40.1 [/tmp/RtmpZrU1d6/nycflights13.sqlite]
 ##    faa   name                             lat    lon   alt    tz dst   tzone    
 ##    &lt;chr&gt; &lt;chr&gt;                          &lt;dbl&gt;  &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;chr&gt; &lt;chr&gt;    
 ##  1 04G   Lansdowne Airport               41.1  -80.6  1044    -5 A     America/…
@@ -445,7 +450,7 @@ dbGetQuery(con, paste(&quot;EXPLAIN QUERY PLAN&quot;, paste(query[-1], collapse 
 <div id="row-vs-columnar-databases" class="section level2">
 <h2>Row vs columnar databases</h2>
 <p>There are many different kinds of databases - relational, SQL, noSQL, etc. One possible distinction might be a result of how the data is organized in
-the table. In row-oriented database all data associated with the same record are stored together, next to each other. This layout makes adding new records very fast. Contrary, in the columnar layout all data that belongs to the same column are stored next to each other. This approach makes the data much more friendly for the processor cache, which makes columnar databases more performant. Usually for analytics you should use columnar databses.</p>
+the table. In row-oriented database all data associated with the same record are stored together, next to each other. This layout makes adding new records very fast. Contrary, in the columnar layout all data that belongs to the same column are stored next to each other. This approach makes the data much more friendly for the processor cache, which makes columnar databases more performant. Usually, for analytics you should use columnar databses.</p>
 <p>The example below shows the comparison of the execution time between row-oriented database (SQLite) and columnar database (duckdb) for simeple aggregation query. No surprises, columnar database is faster.</p>
 <pre class="r"><code>con &lt;- DBI::dbConnect(RSQLite::SQLite(), tempfile())
 
@@ -456,13 +461,13 @@ letter_table &lt;- tibble(letter = letter_column, value = value) %&gt;% arrange(
 dbWriteTable(con, &quot;letter&quot;, letter_table)
 system.time(tbl(con, &quot;letter&quot;) %&gt;% group_by(letter) %&gt;% summarise(mean(value)) %&gt;% collect())</code></pre>
 <pre><code>##    user  system elapsed 
-##   0.364   0.040   0.406</code></pre>
+##   0.436   0.025   0.461</code></pre>
 <pre class="r"><code>library(duckdb)
 con_duck &lt;- dbConnect(duckdb(tempfile()))
 dbWriteTable(con_duck, &quot;letter&quot;, letter_table)
 system.time(tbl(con_duck, &quot;letter&quot;) %&gt;% group_by(letter) %&gt;% summarise(mean(value)) %&gt;% collect())</code></pre>
 <pre><code>##    user  system elapsed 
-##   0.111   0.012   0.095</code></pre>
+##   0.131   0.012   0.113</code></pre>
 <pre class="r"><code>microbenchmark::microbenchmark(times = 10,
   tbl(con, &quot;letter&quot;) %&gt;% group_by(letter) %&gt;% summarise(mean(value)) %&gt;% collect(),
   tbl(con_duck, &quot;letter&quot;) %&gt;% group_by(letter) %&gt;% summarise(mean(value)) %&gt;% collect()
@@ -471,9 +476,9 @@ system.time(tbl(con_duck, &quot;letter&quot;) %&gt;% group_by(letter) %&gt;% sum
 ##                                                                                        expr
 ##       tbl(con, &quot;letter&quot;) %&gt;% group_by(letter) %&gt;% summarise(mean(value)) %&gt;%      collect()
 ##  tbl(con_duck, &quot;letter&quot;) %&gt;% group_by(letter) %&gt;% summarise(mean(value)) %&gt;%      collect()
-##        min       lq      mean    median       uq      max neval cld
-##  397.81023 402.9688 407.99276 407.74619 412.8911 420.9804    10   b
-##   91.00724  92.7953  95.55097  94.64661  98.0982 102.3962    10  a</code></pre>
+##        min        lq      mean    median       uq      max neval cld
+##  410.55408 415.80349 423.26792 420.89233 428.5054 444.0424    10   b
+##   88.92357  93.88219  99.39049  98.74699 104.6958 109.3912    10  a</code></pre>
 <pre class="r"><code>DBI::dbExecute(con, &quot;CREATE INDEX IF NOT EXISTS letters_index ON letter (letter)&quot;)</code></pre>
 <pre><code>## [1] 0</code></pre>
 <pre class="r"><code>DBI::dbExecute(con_duck, &quot;CREATE INDEX IF NOT EXISTS letters_index ON letter (letter)&quot;)</code></pre>
@@ -486,9 +491,9 @@ system.time(tbl(con_duck, &quot;letter&quot;) %&gt;% group_by(letter) %&gt;% sum
 ##                                                                                        expr
 ##       tbl(con, &quot;letter&quot;) %&gt;% group_by(letter) %&gt;% summarise(mean(value)) %&gt;%      collect()
 ##  tbl(con_duck, &quot;letter&quot;) %&gt;% group_by(letter) %&gt;% summarise(mean(value)) %&gt;%      collect()
-##        min        lq      mean   median        uq       max neval cld
-##  190.70744 194.32140 197.48504 197.4265 201.46006 201.73719    10   b
-##   88.24021  89.30333  91.04687  91.0775  91.92758  94.76335    10  a</code></pre>
+##        min       lq      mean    median        uq       max neval cld
+##  204.44771 207.6635 214.65076 211.21876 218.63256 231.55214    10   b
+##   86.25933  87.6635  90.16922  89.43304  92.84429  96.74997    10  a</code></pre>
 </div>
 </div>
 <div id="rendering-sql-using-r-code." class="section level1">
@@ -518,7 +523,7 @@ id &lt;- 1
 dbWriteTable(db, &quot;important_table&quot;, important_table)
 tbl(db, &quot;important_table&quot;)</code></pre>
 <pre><code>## # Source:   table&lt;important_table&gt; [5 x 2]
-## # Database: sqlite 3.40.1 [/tmp/Rtmpw5T4oT/file23c0ad57f4b490]
+## # Database: sqlite 3.40.1 [/tmp/RtmpZrU1d6/file23f83e3ac1feea]
 ##      id value
 ##   &lt;int&gt; &lt;chr&gt;
 ## 1     1 A    
@@ -533,7 +538,7 @@ tbl(db, &quot;important_table&quot;)</code></pre>
 <pre><code>## [1] 1</code></pre>
 <pre class="r"><code>tbl(db, &quot;important_table&quot;)</code></pre>
 <pre><code>## # Source:   table&lt;important_table&gt; [5 x 2]
-## # Database: sqlite 3.40.1 [/tmp/Rtmpw5T4oT/file23c0ad57f4b490]
+## # Database: sqlite 3.40.1 [/tmp/RtmpZrU1d6/file23f83e3ac1feea]
 ##      id value
 ##   &lt;int&gt; &lt;chr&gt;
 ## 1     1 XD   
@@ -550,7 +555,7 @@ id &lt;- &quot;1&#39; OR 1=1 --;&quot;
 <pre><code>## [1] 5</code></pre>
 <pre class="r"><code>tbl(db, &quot;important_table&quot;)</code></pre>
 <pre><code>## # Source:   table&lt;important_table&gt; [5 x 2]
-## # Database: sqlite 3.40.1 [/tmp/Rtmpw5T4oT/file23c0ad57f4b490]
+## # Database: sqlite 3.40.1 [/tmp/RtmpZrU1d6/file23f83e3ac1feea]
 ##      id value
 ##   &lt;int&gt; &lt;chr&gt;
 ## 1     1 XD   
@@ -563,7 +568,7 @@ db &lt;- dbConnect(RSQLite::SQLite(), tempfile())
 dbWriteTable(db, &quot;important_table&quot;, important_table)
 tbl(db, &quot;important_table&quot;)</code></pre>
 <pre><code>## # Source:   table&lt;important_table&gt; [5 x 2]
-## # Database: sqlite 3.40.1 [/tmp/Rtmpw5T4oT/file23c0ad486d7ae3]
+## # Database: sqlite 3.40.1 [/tmp/RtmpZrU1d6/file23f83e53a7f619]
 ##      id value
 ##   &lt;int&gt; &lt;chr&gt;
 ## 1     1 A    
@@ -578,7 +583,7 @@ tbl(db, &quot;important_table&quot;)</code></pre>
 <pre><code>## [1] 1</code></pre>
 <pre class="r"><code>tbl(db, &quot;important_table&quot;)</code></pre>
 <pre><code>## # Source:   table&lt;important_table&gt; [5 x 2]
-## # Database: sqlite 3.40.1 [/tmp/Rtmpw5T4oT/file23c0ad486d7ae3]
+## # Database: sqlite 3.40.1 [/tmp/RtmpZrU1d6/file23f83e53a7f619]
 ##      id value
 ##   &lt;int&gt; &lt;chr&gt;
 ## 1     1 XD   
@@ -594,7 +599,7 @@ id &lt;- &quot;1&#39; OR 1=1 --;&quot;
 <pre><code>## [1] 0</code></pre>
 <pre class="r"><code>tbl(db, &quot;important_table&quot;)</code></pre>
 <pre><code>## # Source:   table&lt;important_table&gt; [5 x 2]
-## # Database: sqlite 3.40.1 [/tmp/Rtmpw5T4oT/file23c0ad486d7ae3]
+## # Database: sqlite 3.40.1 [/tmp/RtmpZrU1d6/file23f83e53a7f619]
 ##      id value
 ##   &lt;int&gt; &lt;chr&gt;
 ## 1     1 XD   
@@ -606,5 +611,5 @@ id &lt;- &quot;1&#39; OR 1=1 --;&quot;
 </div>
 <div id="conclusion" class="section level1">
 <h1>Conclusion</h1>
-<p>The list of different topics presented above is not exhaustive, probably not even in a correct order of importance. But it should be good start.</p>
+<p>The list of different topics presented above is not exhaustive, probably not even in a correct order of importance. But it should be a good start.</p>
 </div>

@@ -7,8 +7,12 @@ tags:
   - R
   - rpkg-dbplyr
   - rpkg-dplyr
+  - SQL
+  - SQLite
+  - duckdb
+  - rpkg-sqldf
+  - rpkg-glue
 ---
-
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -309,7 +313,7 @@ dbGetQuery(con, paste("EXPLAIN QUERY PLAN", paste(query[-1], collapse = "\n")))
 ## Row vs columnar databases
 
 There are many different kinds of databases - relational, SQL, noSQL, etc. One possible distinction might be a result of how the data is organized in
-the table. In row-oriented database all data associated with the same record are stored together, next to each other. This layout makes adding new records very fast. Contrary, in the columnar layout all data that belongs to the same column are stored next to each other. This approach makes the data much more friendly for the processor cache, which makes columnar databases more performant. Usually for analytics you should use columnar databses.
+the table. In row-oriented database all data associated with the same record are stored together, next to each other. This layout makes adding new records very fast. Contrary, in the columnar layout all data that belongs to the same column are stored next to each other. This approach makes the data much more friendly for the processor cache, which makes columnar databases more performant. Usually, for analytics you should use columnar databses.
 
 The example below shows the comparison of the execution time between row-oriented database (SQLite) and columnar database (duckdb) for simeple aggregation query. No surprises, columnar database is faster. 
 
@@ -399,4 +403,4 @@ Moral is short - use `glue_sql` or `dbplyr` or create SQL queries.
 
 # Conclusion
 
-The list of different topics presented above is not exhaustive, probably not even in a correct order of importance. But it should be good start.
+The list of different topics presented above is not exhaustive, probably not even in a correct order of importance. But it should be a good start.
