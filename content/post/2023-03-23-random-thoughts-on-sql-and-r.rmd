@@ -1,0 +1,402 @@
+---
+title: Random thoughts on SQL and R
+author: Zygmunt Zawadzki
+output: html_document
+date: '2023-03-23'
+tags:
+  - R
+  - rpkg-dbplyr
+  - rpkg-dplyr
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+The post below is a collection of useful (but kind of random) thoughts about R and SQL. It should serve more like a starting point, rather than exhaustive discussion of the presented topics. Note that it mostly describes SQLite - many concepts will be similar for different databases, but they might not be identical. You've been warned!
+
+# R, SQL, dbplyr and ORM
+
+When we are talking about accessing SQL from a programming language, it is good to know a little bit about an ORM concept.
+
+- https://en.wikipedia.org/wiki/Object%E2%80%93relational_mapping
+- https://www.sqlalchemy.org/
+- https://kurapov.ee/eng/tech/ORM-is-harfmul-pattern/
+
+However when we are in R-land and we talk about `dbplyr` we can think about it more as a *transpiler*, than ORM. It takes valid `dplyr` code,
+and translates it into SQL. We do not need to perform any object mapping or any similar activity.
+
+Check the code below to see `dbplyr` in action - note that the code is nearly identical to standar `dplyr`. The only difference is that the references to the tables need to be created usign `tbl` function, and at the end, to get data into R `tibble` you need to call `collect`.
+
+```{r, message=FALSE}
+library(RSQLite)
+library(dbplyr)
+library(DBI)
+library(dplyr)
+library(sqldf)
+
+con <- dbplyr::nycflights13_sqlite()
+res <- tbl(con, "flights") %>% group_by(origin, dest, year) %>% count() %>% ungroup() %>%
+  inner_join(tbl(con, "airports") %>% select(faa, origin_name = name), by = c("origin" = "faa")) %>%
+  inner_join(tbl(con, "airports") %>% select(faa, dest_name = name), by = c("dest" = "faa")) %>%
+  select(origin_name, dest_name, year, n) %>% arrange(desc(n))
+
+final_table <- head(res) %>% collect()
+final_table
+
+res %>% show_query()
+```
+
+Important! `dbplyr` cannot translate everything. E.g. for `sqlite` back-end it cannot translate `median` function (!!!).
+
+```{r}
+# It won't work!
+# tbl(con, "flights") %>% mutate(median(dep_delay))
+# Caused by error in `median()`:
+#! Window function `median()` is not supported by this database.
+```
+For more information please refer to https://dbplyr.tidyverse.org/articles/translation-function.html. To check how something is translated you can use `translate_sql` function. I also strongly advise to check the generated queries from time to time using `show_query`, just to make sure that `dbplyr` really generates what you want (besides it is a very good way of learning SQL itself - if `dbplyr` emits some SQL code that you don't understand check the documentation).
+
+```{r}
+translate_sql(lag(x))
+```
+
+
+# Inserting and updating data from R.
+
+There is at least few ways how to insert data into SQL database:
+
+- `DBI::dbWriteTable`
+- `dplyr::copy_to`
+- normal insert query using `DBI::dbExecute`
+- `dplyr`'s `rows_insert, rows_append, rows_update, rows_patch, rows_upsert, rows_delete` - here, you really need to read the documentation!
+
+```{r}
+db_name <- tempfile()
+con <- DBI::dbConnect(RSQLite::SQLite(), db_name)
+dbWriteTable(con, name = "iris_table", iris)
+df <- copy_to(con, iris)
+DBI::dbListTables(con)
+DBI::dbDisconnect(con)
+
+con <- DBI::dbConnect(RSQLite::SQLite(), db_name)
+DBI::dbListTables(con) # note that `iris` table is gone. To make it persistent use temporary = FALSE
+df <- copy_to(con, iris, temporary = FALSE)
+DBI::dbDisconnect(con)
+
+con <- DBI::dbConnect(RSQLite::SQLite(), db_name)
+DBI::dbListTables(con)
+
+# To create new tables or view you can use dbExecute
+# if you don't know what a SQL view is - google it or read further.
+# I am tackling that topic in the next section
+sql_view <- "
+CREATE VIEW iris_group_by AS
+  SELECT species, AVG(`Sepal.Length`) AS SEPAL_LEN_AVG FROM iris GROUP BY species 
+"
+DBI::dbExecute(con, sql_view)
+DBI::dbListTables(con)
+tbl(con, "iris_group_by")
+
+```
+
+# Some useful SQL terminology
+
+## Views
+
+Views are a very handy concept for simplifying your life. If you need to use specific sub-query over and over again,
+you can just create a "virtual" table using a `view`. After that you can refer to it just like you refer to standard table.
+
+For more information please refer to Wikipedia - it also list different uses cases for views (e.g. access restriction):
+- https://en.wikipedia.org/wiki/Materialized_view
+- https://en.wikipedia.org/wiki/View_(SQL)
+
+```{r}
+db_name <- tempfile()
+con <- DBI::dbConnect(RSQLite::SQLite(), db_name)
+
+letter_column <- sample(LETTERS, replace = TRUE, size = 1e6)
+value <- rnorm(n = length(letter_column), mean = as.integer(charToRaw(paste(letter_column, collapse = ""))))
+letter_table <- tibble(letter = letter_column, value = value)
+copy_to(con, letter_table, temporary = FALSE)
+
+sql_view <- "
+  CREATE VIEW 
+    letter_avg AS
+  SELECT
+    letter, AVG(value) AS AVG_VALUE 
+  FROM
+    letter_table
+  GROUP BY
+    letter
+"
+DBI::dbExecute(con, sql_view)
+DBI::dbListTables(con)
+tbl(con, "letter_avg")
+
+# Just for fun - added new table with index to check how much time can be saved by using them in this example.
+# !!! Indexes are something that you need to know if you work with SQL !!!
+# In many cases when the query performance is waaay to slow the problem is somehow related to indexes (or lack of them).
+
+copy_to(con, letter_table, temporary = FALSE, name = "letter_table_with_index")
+sql_view <- "
+  CREATE VIEW letter_avg_with_index AS SELECT letter, AVG(value) AS AVG_VALUE 
+  FROM letter_table_with_index GROUP BY letter
+"
+DBI::dbExecute(con, sql_view)
+DBI::dbExecute(con, "CREATE INDEX IF NOT EXISTS letters_index ON letter_table_with_index (letter)")
+
+microbenchmark::microbenchmark(times = 5,
+  tbl(con, "letter_avg") %>% collect(),
+  tbl(con, "letter_table_with_index") %>% collect(),
+  letter_table %>% group_by(letter) %>% summarise(avg = mean(value))
+)
+
+```
+
+## CTE
+
+If you need to write some SQL by hand, consider using CTE rather than nested expressions. Compare the code generated by `dplyr` and the code written using CTE - for me, CTE version is much easier to digest - it reads from the top to the bottom. `dplyr`'s query needs to be read from inside.
+
+- https://learnsql.com/blog/what-is-common-table-expression/
+
+```{r}
+# install.packages("nycflights13")
+con <- dbplyr::nycflights13_sqlite()
+
+tbl(con, "airports")
+
+airlines <- tbl(con, "airlines") %>% filter(name %LIKE% "%America%")
+flights <- tbl(con, "flights") %>% select(carrier, tailnum) %>% distinct()
+
+result <- inner_join(airlines, flights, by = c("carrier")) %>% group_by(carrier, name) %>% count()
+
+result %>% show_query()
+
+cte_query <- "
+WITH america_airlines AS (
+  SELECT *
+    FROM airlines
+    WHERE (name LIKE '%America%')
+),
+distinct_flights AS (
+  SELECT DISTINCT carrier, tailnum FROM flights
+),
+joined_data AS (
+  SELECT * FROM america_airlines a INNER JOIN distinct_flights f
+  ON a.carrier = f.carrier
+)
+SELECT carrier, name, COUNT(*) AS `n`
+FROM joined_data
+GROUP BY carrier, name
+"
+
+DBI::dbGetQuery(con, cte_query)
+
+```
+## Window functions
+
+Window functions in SQL are a very broad topic. They can be used to calculate cumulative sums, running averages or adding summary function alongside original data (similar to `iris %>% group_by(Species) %>% mutate(Sep_len_avg = mean(Sepal.Length))`). Without knowing them some tasks might become unnecessary complicated (e.g. adding a column with averages would require to create a summary table that would be joined back to the original table). 
+
+
+```{r}
+con <- dbplyr::nycflights13_sqlite()
+
+# calculate a ratio of number of flights in a given day to number of flights in a month
+# window function is used to create `monthly` column. See in the generated SQL.
+tbl_res <- tbl(con, "flights") %>% group_by(year, month, day) %>% count(name = "daily") %>%
+  group_by(year, month) %>% mutate(monthly = sum(daily)) %>% mutate(dayily_ratio = daily/as.numeric(monthly))
+tbl_res %>% head %>% collect()
+tbl_res %>% show_query()
+
+# Adding a column with mean Sepal.Width to the original data.
+
+# sqldf is cool package that allows you to write SQL on R tables.
+# in the background it copies the data into SQLite, executes query,
+# and copies the result back into R. I was using it more before dplyr and dbplyr
+# times. But still I think that it's cool package:)
+iris2 <- iris[c(1:3,51:53,101:103),]
+sqldf("SELECT *, AVG(\"Sepal.Width\") OVER (PARTITION BY \"Species\") from iris2")
+sqldf(
+"SELECT 
+    species, 
+    \"Sepal.Width\", 
+    SUM(\"Sepal.Width\") OVER (PARTITION BY species ORDER BY species ROWS UNBOUNDED PRECEDING) AS cusum,
+    row_number() OVER (PARTITION BY species)
+  FROM
+    iris2")
+
+```
+
+## Recursive CTE
+
+Recursive CTE are one of those things that very rarely comes in handy, so by the time you have to use it, you will have forgotten its syntax. From my experience, whenever you hear "We need to use a graph database for it!", think about "recursive CTE". They might not be the "perfect" tool for the job, but they might be performant enough.
+
+```{r}
+db <- dbConnect(RSQLite::SQLite(), tempfile())
+
+sql <- "
+CREATE TABLE org(
+  name TEXT PRIMARY KEY,
+  boss TEXT REFERENCES org
+) WITHOUT ROWID;
+"
+dbExecute(db, sql)
+
+values <- "INSERT INTO org VALUES('Alice',NULL);
+INSERT INTO org VALUES('Bob','Alice');
+INSERT INTO org VALUES('Cindy','Alice');
+INSERT INTO org VALUES('Dave','Bob');
+INSERT INTO org VALUES('Emma','Bob');
+INSERT INTO org VALUES('Fred','Cindy');
+INSERT INTO org VALUES('Gail','Cindy');
+INSERT INTO org VALUES('Lindy',NULL);
+INSERT INTO org VALUES('John','Lindy');
+INSERT INTO org VALUES('Luke','John');
+INSERT INTO org VALUES('Megan','Lindy');"
+values <- stringr::str_split(values, pattern = "\n", simplify = TRUE) %>% as.character()
+purrr::map(values, function(x) dbExecute(db, x)) %>% invisible()
+
+dbGetQuery(conn = db, "
+WITH RECURSIVE
+  under_alice(name,level) AS (
+    VALUES('Alice',0)
+    UNION ALL
+    SELECT org.name, under_alice.level+1
+      FROM org JOIN under_alice ON org.boss=under_alice.name
+     ORDER BY 2 DESC
+  )
+SELECT substr('..........',1,level*3) || name AS structure FROM under_alice;
+")
+
+dbGetQuery(conn = db, "
+WITH RECURSIVE
+  under_alice(name,level) AS (
+    SELECT org.name, 0 as level from org where org.boss IS NULL
+    UNION ALL
+    SELECT org.name, under_alice.level+1
+      FROM org JOIN under_alice ON org.boss=under_alice.name
+     ORDER BY 2 DESC
+  )
+SELECT name || substr('..........',1,level*3) AS structure FROM under_alice;
+")
+
+
+```
+
+## Query explainer and query optimizer
+
+Query explainer and query optimizer are two additional topics that are worthwhile to be aware of. In a nutshell, SQL engine before executing the query prepares an execution plan (e.g. which indexes are going to be used, in which order tables are going to be join, etc). If the query is too slow you might check the prepared plan to see what's going on - e.g. you might notice that SQL engine is performing full table scan (reads all rows) rather than using an index.
+
+As always query plan output is database specific, so all the knowledge gathered for one engine might not be transferable to the other one.
+
+A good place to start is as always SQLite site:
+- https://www.sqlite.org/eqp.html - query explain.
+- https://www.sqlite.org/optoverview.html query optimizer.
+
+```{r}
+con <- dbplyr::nycflights13_sqlite()
+
+tbl_res <- tbl(con, "flights") %>% group_by(year, month, day) %>% count(name = "daily") %>%
+  group_by(year, month) %>% mutate(monthly = sum(daily)) %>% mutate(dayily_ratio = daily/as.numeric(monthly))
+
+query <- capture.output(tbl_res %>% show_query())
+dbGetQuery(con, paste("EXPLAIN QUERY PLAN", paste(query[-1], collapse = "\n")))
+
+```
+
+## Row vs columnar databases
+
+There are many different kinds of databases - relational, SQL, noSQL, etc. One possible distinction might be a result of how the data is organized in
+the table. In row-oriented database all data associated with the same record are stored together, next to each other. This layout makes adding new records very fast. Contrary, in the columnar layout all data that belongs to the same column are stored next to each other. This approach makes the data much more friendly for the processor cache, which makes columnar databases more performant. Usually for analytics you should use columnar databses.
+
+The example below shows the comparison of the execution time between row-oriented database (SQLite) and columnar database (duckdb) for simeple aggregation query. No surprises, columnar database is faster. 
+
+```{r}
+con <- DBI::dbConnect(RSQLite::SQLite(), tempfile())
+
+letter_column <- sample(LETTERS, replace = TRUE, size = 1e6)
+value <- rnorm(n = length(letter_column), mean = as.integer(charToRaw(paste(letter_column, collapse = ""))))
+letter_table <- tibble(letter = letter_column, value = value) %>% arrange(letter)
+
+dbWriteTable(con, "letter", letter_table)
+system.time(tbl(con, "letter") %>% group_by(letter) %>% summarise(mean(value)) %>% collect())
+
+library(duckdb)
+con_duck <- dbConnect(duckdb(tempfile()))
+dbWriteTable(con_duck, "letter", letter_table)
+system.time(tbl(con_duck, "letter") %>% group_by(letter) %>% summarise(mean(value)) %>% collect())
+
+microbenchmark::microbenchmark(times = 10,
+  tbl(con, "letter") %>% group_by(letter) %>% summarise(mean(value)) %>% collect(),
+  tbl(con_duck, "letter") %>% group_by(letter) %>% summarise(mean(value)) %>% collect()
+)
+
+DBI::dbExecute(con, "CREATE INDEX IF NOT EXISTS letters_index ON letter (letter)")
+DBI::dbExecute(con_duck, "CREATE INDEX IF NOT EXISTS letters_index ON letter (letter)")
+microbenchmark::microbenchmark(times = 10,
+  tbl(con, "letter") %>% group_by(letter) %>% summarise(mean(value)) %>% collect(),
+  tbl(con_duck, "letter") %>% group_by(letter) %>% summarise(mean(value)) %>% collect()
+)
+
+```
+
+# Rendering SQL using R code.
+
+When you programmatically create SQL in R, DO NOT USE `paste` or `glue` to fill parameters. Use `glue_sql` instead. It sanitizes the input, making it safe from
+different kinds of attacks that allows unauthorized person to access or destroy data in your tables.
+
+```{r}
+important_table <- tibble(id = 1:5, value = LETTERS[1:5])
+
+id <- 1
+(sql <- glue::glue("SELECT * FROM important_table WHERE id = '{id}'"))
+sqldf(sql)
+
+id <- "1' OR 1=1 --;"
+(sql <- glue::glue("SELECT * FROM important_table WHERE id = '{id}'"))
+sqldf(sql)
+```
+
+Now let's see how to destroy a table:
+
+```{r}
+db <- dbConnect(RSQLite::SQLite(), tempfile())
+dbWriteTable(db, "important_table", important_table)
+tbl(db, "important_table")
+id <- 1
+(sql <- glue::glue("UPDATE important_table SET value = 'XD' WHERE id = '{id}'"))
+dbExecute(db, sql)
+tbl(db, "important_table")
+
+# Destroy the whole table!
+# https://xkcd.com/327/
+id <- "1' OR 1=1 --;"
+(sql <- glue::glue("UPDATE important_table SET value = 'XD' WHERE id = '{id}'"))
+dbExecute(db, sql)
+tbl(db, "important_table")
+
+## Now with glue_sql
+db <- dbConnect(RSQLite::SQLite(), tempfile())
+dbWriteTable(db, "important_table", important_table)
+tbl(db, "important_table")
+id <- "1"
+(sql <- glue::glue_sql("UPDATE important_table SET value = 'XD' WHERE id = {id}", .con = db))
+dbExecute(db, sql)
+tbl(db, "important_table")
+
+# Table is safe!
+id <- "1' OR 1=1 --;"
+(sql <- glue::glue_sql("UPDATE important_table SET value = 'XD' WHERE id = {id}", .con = db))
+dbExecute(db, sql)
+tbl(db, "important_table")
+
+
+```
+Moral is short - use `glue_sql` or `dbplyr` or create SQL queries.
+
+
+# Conclusion
+
+The list of different topics presented above is not exhaustive, probably not even in a correct order of importance. But it should be good start.

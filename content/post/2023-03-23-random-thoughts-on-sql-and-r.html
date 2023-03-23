@@ -1,0 +1,610 @@
+---
+title: Random thoughts on SQL and R
+author: Zygmunt Zawadzki
+output: html_document
+date: '2023-03-23'
+tags:
+  - R
+  - rpkg-dbplyr
+  - rpkg-dplyr
+---
+
+
+
+<p>The post below is a collection of useful (but kind of random) thoughts about R and SQL. It should serve more like a starting point, rather than exhaustive discussion of the presented topics. Note that it mostly describes SQLite - many concepts will be similar for different databases, but they might not be identical. You’ve been warned!</p>
+<div id="r-sql-dbplyr-and-orm" class="section level1">
+<h1>R, SQL, dbplyr and ORM</h1>
+<p>When we are talking about accessing SQL from a programming language, it is good to know a little bit about an ORM concept.</p>
+<ul>
+<li><a href="https://en.wikipedia.org/wiki/Object%E2%80%93relational_mapping" class="uri">https://en.wikipedia.org/wiki/Object%E2%80%93relational_mapping</a></li>
+<li><a href="https://www.sqlalchemy.org/" class="uri">https://www.sqlalchemy.org/</a></li>
+<li><a href="https://kurapov.ee/eng/tech/ORM-is-harfmul-pattern/" class="uri">https://kurapov.ee/eng/tech/ORM-is-harfmul-pattern/</a></li>
+</ul>
+<p>However when we are in R-land and we talk about <code>dbplyr</code> we can think about it more as a <em>transpiler</em>, than ORM. It takes valid <code>dplyr</code> code,
+and translates it into SQL. We do not need to perform any object mapping or any similar activity.</p>
+<p>Check the code below to see <code>dbplyr</code> in action - note that the code is nearly identical to standar <code>dplyr</code>. The only difference is that the references to the tables need to be created usign <code>tbl</code> function, and at the end, to get data into R <code>tibble</code> you need to call <code>collect</code>.</p>
+<pre class="r"><code>library(RSQLite)
+library(dbplyr)
+library(DBI)
+library(dplyr)
+library(sqldf)
+
+con &lt;- dbplyr::nycflights13_sqlite()
+res &lt;- tbl(con, &quot;flights&quot;) %&gt;% group_by(origin, dest, year) %&gt;% count() %&gt;% ungroup() %&gt;%
+  inner_join(tbl(con, &quot;airports&quot;) %&gt;% select(faa, origin_name = name), by = c(&quot;origin&quot; = &quot;faa&quot;)) %&gt;%
+  inner_join(tbl(con, &quot;airports&quot;) %&gt;% select(faa, dest_name = name), by = c(&quot;dest&quot; = &quot;faa&quot;)) %&gt;%
+  select(origin_name, dest_name, year, n) %&gt;% arrange(desc(n))
+
+final_table &lt;- head(res) %&gt;% collect()
+final_table</code></pre>
+<pre><code>## # A tibble: 6 × 4
+##   origin_name         dest_name                        year     n
+##   &lt;chr&gt;               &lt;chr&gt;                           &lt;int&gt; &lt;int&gt;
+## 1 John F Kennedy Intl Los Angeles Intl                 2013 11262
+## 2 La Guardia          Hartsfield Jackson Atlanta Intl  2013 10263
+## 3 La Guardia          Chicago Ohare Intl               2013  8857
+## 4 John F Kennedy Intl San Francisco Intl               2013  8204
+## 5 La Guardia          Charlotte Douglas Intl           2013  6168
+## 6 Newark Liberty Intl Chicago Ohare Intl               2013  6100</code></pre>
+<pre class="r"><code>res %&gt;% show_query()</code></pre>
+<pre><code>## &lt;SQL&gt;
+## SELECT *
+## FROM (
+##   SELECT
+##     `airports...2`.`name` AS `origin_name`,
+##     `airports...3`.`name` AS `dest_name`,
+##     `year`,
+##     `n`
+##   FROM (
+##     SELECT `origin`, `dest`, `year`, COUNT(*) AS `n`
+##     FROM `flights`
+##     GROUP BY `origin`, `dest`, `year`
+##   ) AS `...1`
+##   INNER JOIN `airports` AS `airports...2`
+##     ON (`...1`.`origin` = `airports...2`.`faa`)
+##   INNER JOIN `airports` AS `airports...3`
+##     ON (`...1`.`dest` = `airports...3`.`faa`)
+## )
+## ORDER BY `n` DESC</code></pre>
+<p>Important! <code>dbplyr</code> cannot translate everything. E.g. for <code>sqlite</code> back-end it cannot translate <code>median</code> function (!!!).</p>
+<pre class="r"><code># It won&#39;t work!
+# tbl(con, &quot;flights&quot;) %&gt;% mutate(median(dep_delay))
+# Caused by error in `median()`:
+#! Window function `median()` is not supported by this database.</code></pre>
+<p>For more information please refer to <a href="https://dbplyr.tidyverse.org/articles/translation-function.html" class="uri">https://dbplyr.tidyverse.org/articles/translation-function.html</a>. To check how something is translated you can use <code>translate_sql</code> function. I also strongly advise to check the generated queries from time to time using <code>show_query</code>, just to make sure that <code>dbplyr</code> really generates what you want (besides it is a very good way of learning SQL itself - if <code>dbplyr</code> emits some SQL code that you don’t understand check the documentation).</p>
+<pre class="r"><code>translate_sql(lag(x))</code></pre>
+<pre><code>## &lt;SQL&gt; LAG(`x`, 1, NULL) OVER ()</code></pre>
+</div>
+<div id="inserting-and-updating-data-from-r." class="section level1">
+<h1>Inserting and updating data from R.</h1>
+<p>There is at least few ways how to insert data into SQL database:</p>
+<ul>
+<li><code>DBI::dbWriteTable</code></li>
+<li><code>dplyr::copy_to</code></li>
+<li>normal insert query using <code>DBI::dbExecute</code></li>
+<li><code>dplyr</code>’s <code>rows_insert, rows_append, rows_update, rows_patch, rows_upsert, rows_delete</code> - here, you really need to read the documentation!</li>
+</ul>
+<pre class="r"><code>db_name &lt;- tempfile()
+con &lt;- DBI::dbConnect(RSQLite::SQLite(), db_name)
+dbWriteTable(con, name = &quot;iris_table&quot;, iris)
+df &lt;- copy_to(con, iris)
+DBI::dbListTables(con)</code></pre>
+<pre><code>## [1] &quot;iris&quot;         &quot;iris_table&quot;   &quot;sqlite_stat1&quot; &quot;sqlite_stat4&quot;</code></pre>
+<pre class="r"><code>DBI::dbDisconnect(con)
+
+con &lt;- DBI::dbConnect(RSQLite::SQLite(), db_name)
+DBI::dbListTables(con) # note that `iris` table is gone. To make it persistent use temporary = FALSE</code></pre>
+<pre><code>## [1] &quot;iris_table&quot;</code></pre>
+<pre class="r"><code>df &lt;- copy_to(con, iris, temporary = FALSE)
+DBI::dbDisconnect(con)
+
+con &lt;- DBI::dbConnect(RSQLite::SQLite(), db_name)
+DBI::dbListTables(con)</code></pre>
+<pre><code>## [1] &quot;iris&quot;         &quot;iris_table&quot;   &quot;sqlite_stat1&quot; &quot;sqlite_stat4&quot;</code></pre>
+<pre class="r"><code># To create new tables or view you can use dbExecute
+# if you don&#39;t know what a SQL view is - google it or read further.
+# I am tackling that topic in the next section
+sql_view &lt;- &quot;
+CREATE VIEW iris_group_by AS
+  SELECT species, AVG(`Sepal.Length`) AS SEPAL_LEN_AVG FROM iris GROUP BY species 
+&quot;
+DBI::dbExecute(con, sql_view)</code></pre>
+<pre><code>## [1] 0</code></pre>
+<pre class="r"><code>DBI::dbListTables(con)</code></pre>
+<pre><code>## [1] &quot;iris&quot;          &quot;iris_group_by&quot; &quot;iris_table&quot;    &quot;sqlite_stat1&quot; 
+## [5] &quot;sqlite_stat4&quot;</code></pre>
+<pre class="r"><code>tbl(con, &quot;iris_group_by&quot;)</code></pre>
+<pre><code>## # Source:   table&lt;iris_group_by&gt; [3 x 2]
+## # Database: sqlite 3.40.1 [/tmp/Rtmpw5T4oT/file23c0ad266adea3]
+##   Species    SEPAL_LEN_AVG
+##   &lt;chr&gt;              &lt;dbl&gt;
+## 1 setosa              5.01
+## 2 versicolor          5.94
+## 3 virginica           6.59</code></pre>
+</div>
+<div id="some-useful-sql-terminology" class="section level1">
+<h1>Some useful SQL terminology</h1>
+<div id="views" class="section level2">
+<h2>Views</h2>
+<p>Views are a very handy concept for simplifying your life. If you need to use specific sub-query over and over again,
+you can just create a “virtual” table using a <code>view</code>. After that you can refer to it just like you refer to standard table.</p>
+<p>For more information please refer to Wikipedia - it also list different uses cases for views (e.g. access restriction):
+- <a href="https://en.wikipedia.org/wiki/Materialized_view" class="uri">https://en.wikipedia.org/wiki/Materialized_view</a>
+- <a href="https://en.wikipedia.org/wiki/View_(SQL)" class="uri">https://en.wikipedia.org/wiki/View_(SQL)</a></p>
+<pre class="r"><code>db_name &lt;- tempfile()
+con &lt;- DBI::dbConnect(RSQLite::SQLite(), db_name)
+
+letter_column &lt;- sample(LETTERS, replace = TRUE, size = 1e6)
+value &lt;- rnorm(n = length(letter_column), mean = as.integer(charToRaw(paste(letter_column, collapse = &quot;&quot;))))
+letter_table &lt;- tibble(letter = letter_column, value = value)
+copy_to(con, letter_table, temporary = FALSE)
+
+sql_view &lt;- &quot;
+  CREATE VIEW 
+    letter_avg AS
+  SELECT
+    letter, AVG(value) AS AVG_VALUE 
+  FROM
+    letter_table
+  GROUP BY
+    letter
+&quot;
+DBI::dbExecute(con, sql_view)</code></pre>
+<pre><code>## [1] 0</code></pre>
+<pre class="r"><code>DBI::dbListTables(con)</code></pre>
+<pre><code>## [1] &quot;letter_avg&quot;   &quot;letter_table&quot; &quot;sqlite_stat1&quot; &quot;sqlite_stat4&quot;</code></pre>
+<pre class="r"><code>tbl(con, &quot;letter_avg&quot;)</code></pre>
+<pre><code>## # Source:   table&lt;letter_avg&gt; [?? x 2]
+## # Database: sqlite 3.40.1 [/tmp/Rtmpw5T4oT/file23c0ada899e28]
+##    letter AVG_VALUE
+##    &lt;chr&gt;      &lt;dbl&gt;
+##  1 A           65.0
+##  2 B           66.0
+##  3 C           67.0
+##  4 D           68.0
+##  5 E           69.0
+##  6 F           70.0
+##  7 G           71.0
+##  8 H           72.0
+##  9 I           73.0
+## 10 J           74.0
+## # … with more rows</code></pre>
+<pre class="r"><code># Just for fun - added new table with index to check how much time can be saved by using them in this example.
+# !!! Indexes are something that you need to know if you work with SQL !!!
+# In many cases when the query performance is waaay to slow the problem is somehow related to indexes (or lack of them).
+
+copy_to(con, letter_table, temporary = FALSE, name = &quot;letter_table_with_index&quot;)
+sql_view &lt;- &quot;
+  CREATE VIEW letter_avg_with_index AS SELECT letter, AVG(value) AS AVG_VALUE 
+  FROM letter_table_with_index GROUP BY letter
+&quot;
+DBI::dbExecute(con, sql_view)</code></pre>
+<pre><code>## [1] 0</code></pre>
+<pre class="r"><code>DBI::dbExecute(con, &quot;CREATE INDEX IF NOT EXISTS letters_index ON letter_table_with_index (letter)&quot;)</code></pre>
+<pre><code>## [1] 0</code></pre>
+<pre class="r"><code>microbenchmark::microbenchmark(times = 5,
+  tbl(con, &quot;letter_avg&quot;) %&gt;% collect(),
+  tbl(con, &quot;letter_table_with_index&quot;) %&gt;% collect(),
+  letter_table %&gt;% group_by(letter) %&gt;% summarise(avg = mean(value))
+)</code></pre>
+<pre><code>## Unit: milliseconds
+##                                                                expr       min
+##                                tbl(con, &quot;letter_avg&quot;) %&gt;% collect() 437.40853
+##                   tbl(con, &quot;letter_table_with_index&quot;) %&gt;% collect() 386.77535
+##  letter_table %&gt;% group_by(letter) %&gt;% summarise(avg = mean(value))  25.53868
+##         lq      mean    median        uq       max neval cld
+##  440.08261 444.80322 444.68745 448.22763 453.60988     5   c
+##  402.80887 402.38050 404.62750 406.15479 411.53601     5  b 
+##   28.39252  30.32159  29.58823  31.70435  36.38419     5 a</code></pre>
+</div>
+<div id="cte" class="section level2">
+<h2>CTE</h2>
+<p>If you need to write some SQL by hand, consider using CTE rather than nested expressions. Compare the code generated by <code>dplyr</code> and the code written using CTE - for me, CTE version is much easier to digest - it reads from the top to the bottom. <code>dplyr</code>’s query needs to be read from inside.</p>
+<ul>
+<li><a href="https://learnsql.com/blog/what-is-common-table-expression/" class="uri">https://learnsql.com/blog/what-is-common-table-expression/</a></li>
+</ul>
+<pre class="r"><code># install.packages(&quot;nycflights13&quot;)
+con &lt;- dbplyr::nycflights13_sqlite()
+
+tbl(con, &quot;airports&quot;)</code></pre>
+<pre><code>## # Source:   table&lt;airports&gt; [?? x 8]
+## # Database: sqlite 3.40.1 [/tmp/Rtmpw5T4oT/nycflights13.sqlite]
+##    faa   name                             lat    lon   alt    tz dst   tzone    
+##    &lt;chr&gt; &lt;chr&gt;                          &lt;dbl&gt;  &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;chr&gt; &lt;chr&gt;    
+##  1 04G   Lansdowne Airport               41.1  -80.6  1044    -5 A     America/…
+##  2 06A   Moton Field Municipal Airport   32.5  -85.7   264    -6 A     America/…
+##  3 06C   Schaumburg Regional             42.0  -88.1   801    -6 A     America/…
+##  4 06N   Randall Airport                 41.4  -74.4   523    -5 A     America/…
+##  5 09J   Jekyll Island Airport           31.1  -81.4    11    -5 A     America/…
+##  6 0A9   Elizabethton Municipal Airport  36.4  -82.2  1593    -5 A     America/…
+##  7 0G6   Williams County Airport         41.5  -84.5   730    -5 A     America/…
+##  8 0G7   Finger Lakes Regional Airport   42.9  -76.8   492    -5 A     America/…
+##  9 0P2   Shoestring Aviation Airfield    39.8  -76.6  1000    -5 U     America/…
+## 10 0S9   Jefferson County Intl           48.1 -123.    108    -8 A     America/…
+## # … with more rows</code></pre>
+<pre class="r"><code>airlines &lt;- tbl(con, &quot;airlines&quot;) %&gt;% filter(name %LIKE% &quot;%America%&quot;)
+flights &lt;- tbl(con, &quot;flights&quot;) %&gt;% select(carrier, tailnum) %&gt;% distinct()
+
+result &lt;- inner_join(airlines, flights, by = c(&quot;carrier&quot;)) %&gt;% group_by(carrier, name) %&gt;% count()
+
+result %&gt;% show_query()</code></pre>
+<pre><code>## &lt;SQL&gt;
+## SELECT `carrier`, `name`, COUNT(*) AS `n`
+## FROM (
+##   SELECT `LHS`.*, `tailnum`
+##   FROM (
+##     SELECT *
+##     FROM `airlines`
+##     WHERE (`name` LIKE &#39;%America%&#39;)
+##   ) AS `LHS`
+##   INNER JOIN (
+##     SELECT DISTINCT `carrier`, `tailnum`
+##     FROM `flights`
+##   ) AS `RHS`
+##     ON (`LHS`.`carrier` = `RHS`.`carrier`)
+## )
+## GROUP BY `carrier`, `name`</code></pre>
+<pre class="r"><code>cte_query &lt;- &quot;
+WITH america_airlines AS (
+  SELECT *
+    FROM airlines
+    WHERE (name LIKE &#39;%America%&#39;)
+),
+distinct_flights AS (
+  SELECT DISTINCT carrier, tailnum FROM flights
+),
+joined_data AS (
+  SELECT * FROM america_airlines a INNER JOIN distinct_flights f
+  ON a.carrier = f.carrier
+)
+SELECT carrier, name, COUNT(*) AS `n`
+FROM joined_data
+GROUP BY carrier, name
+&quot;
+
+DBI::dbGetQuery(con, cte_query)</code></pre>
+<pre><code>##   carrier                   name   n
+## 1      AA American Airlines Inc. 601
+## 2      VX         Virgin America  53</code></pre>
+</div>
+<div id="window-functions" class="section level2">
+<h2>Window functions</h2>
+<p>Window functions in SQL are a very broad topic. They can be used to calculate cumulative sums, running averages or adding summary function alongside original data (similar to <code>iris %&gt;% group_by(Species) %&gt;% mutate(Sep_len_avg = mean(Sepal.Length))</code>). Without knowing them some tasks might become unnecessary complicated (e.g. adding a column with averages would require to create a summary table that would be joined back to the original table).</p>
+<pre class="r"><code>con &lt;- dbplyr::nycflights13_sqlite()
+
+# calculate a ratio of number of flights in a given day to number of flights in a month
+# window function is used to create `monthly` column. See in the generated SQL.
+tbl_res &lt;- tbl(con, &quot;flights&quot;) %&gt;% group_by(year, month, day) %&gt;% count(name = &quot;daily&quot;) %&gt;%
+  group_by(year, month) %&gt;% mutate(monthly = sum(daily)) %&gt;% mutate(dayily_ratio = daily/as.numeric(monthly))
+tbl_res %&gt;% head %&gt;% collect()</code></pre>
+<pre><code>## Warning: Missing values are always removed in SQL aggregation functions.
+## Use `na.rm = TRUE` to silence this warning
+## This warning is displayed once every 8 hours.</code></pre>
+<pre><code>## # A tibble: 6 × 6
+## # Groups:   year, month [1]
+##    year month   day daily monthly dayily_ratio
+##   &lt;int&gt; &lt;int&gt; &lt;int&gt; &lt;int&gt;   &lt;int&gt;        &lt;dbl&gt;
+## 1  2013     1     1   842   27004       0.0312
+## 2  2013     1     2   943   27004       0.0349
+## 3  2013     1     3   914   27004       0.0338
+## 4  2013     1     4   915   27004       0.0339
+## 5  2013     1     5   720   27004       0.0267
+## 6  2013     1     6   832   27004       0.0308</code></pre>
+<pre class="r"><code>tbl_res %&gt;% show_query()</code></pre>
+<pre><code>## &lt;SQL&gt;
+## SELECT *, `daily` / CAST(`monthly` AS REAL) AS `dayily_ratio`
+## FROM (
+##   SELECT *, SUM(`daily`) OVER (PARTITION BY `year`, `month`) AS `monthly`
+##   FROM (
+##     SELECT `year`, `month`, `day`, COUNT(*) AS `daily`
+##     FROM `flights`
+##     GROUP BY `year`, `month`, `day`
+##   )
+## )</code></pre>
+<pre class="r"><code># Adding a column with mean Sepal.Width to the original data.
+
+# sqldf is cool package that allows you to write SQL on R tables.
+# in the background it copies the data into SQLite, executes query,
+# and copies the result back into R. I was using it more before dplyr and dbplyr
+# times. But still I think that it&#39;s cool package:)
+iris2 &lt;- iris[c(1:3,51:53,101:103),]
+sqldf(&quot;SELECT *, AVG(\&quot;Sepal.Width\&quot;) OVER (PARTITION BY \&quot;Species\&quot;) from iris2&quot;)</code></pre>
+<pre><code>##   Sepal.Length Sepal.Width Petal.Length Petal.Width    Species
+## 1          5.1         3.5          1.4         0.2     setosa
+## 2          4.9         3.0          1.4         0.2     setosa
+## 3          4.7         3.2          1.3         0.2     setosa
+## 4          7.0         3.2          4.7         1.4 versicolor
+## 5          6.4         3.2          4.5         1.5 versicolor
+## 6          6.9         3.1          4.9         1.5 versicolor
+## 7          6.3         3.3          6.0         2.5  virginica
+## 8          5.8         2.7          5.1         1.9  virginica
+## 9          7.1         3.0          5.9         2.1  virginica
+##   AVG(&quot;Sepal.Width&quot;) OVER (PARTITION BY &quot;Species&quot;)
+## 1                                         3.233333
+## 2                                         3.233333
+## 3                                         3.233333
+## 4                                         3.166667
+## 5                                         3.166667
+## 6                                         3.166667
+## 7                                         3.000000
+## 8                                         3.000000
+## 9                                         3.000000</code></pre>
+<pre class="r"><code>sqldf(
+&quot;SELECT 
+    species, 
+    \&quot;Sepal.Width\&quot;, 
+    SUM(\&quot;Sepal.Width\&quot;) OVER (PARTITION BY species ORDER BY species ROWS UNBOUNDED PRECEDING) AS cusum,
+    row_number() OVER (PARTITION BY species)
+  FROM
+    iris2&quot;)</code></pre>
+<pre><code>##      Species Sepal.Width cusum row_number() OVER (PARTITION BY species)
+## 1     setosa         3.5   3.5                                        1
+## 2     setosa         3.0   6.5                                        2
+## 3     setosa         3.2   9.7                                        3
+## 4 versicolor         3.2   3.2                                        1
+## 5 versicolor         3.2   6.4                                        2
+## 6 versicolor         3.1   9.5                                        3
+## 7  virginica         3.3   3.3                                        1
+## 8  virginica         2.7   6.0                                        2
+## 9  virginica         3.0   9.0                                        3</code></pre>
+</div>
+<div id="recursive-cte" class="section level2">
+<h2>Recursive CTE</h2>
+<p>Recursive CTE are one of those things that very rarely comes in handy, so by the time you have to use it, you will have forgotten its syntax. From my experience, whenever you hear “We need to use a graph database for it!”, think about “recursive CTE”. They might not be the “perfect” tool for the job, but they might be performant enough.</p>
+<pre class="r"><code>db &lt;- dbConnect(RSQLite::SQLite(), tempfile())
+
+sql &lt;- &quot;
+CREATE TABLE org(
+  name TEXT PRIMARY KEY,
+  boss TEXT REFERENCES org
+) WITHOUT ROWID;
+&quot;
+dbExecute(db, sql)</code></pre>
+<pre><code>## [1] 0</code></pre>
+<pre class="r"><code>values &lt;- &quot;INSERT INTO org VALUES(&#39;Alice&#39;,NULL);
+INSERT INTO org VALUES(&#39;Bob&#39;,&#39;Alice&#39;);
+INSERT INTO org VALUES(&#39;Cindy&#39;,&#39;Alice&#39;);
+INSERT INTO org VALUES(&#39;Dave&#39;,&#39;Bob&#39;);
+INSERT INTO org VALUES(&#39;Emma&#39;,&#39;Bob&#39;);
+INSERT INTO org VALUES(&#39;Fred&#39;,&#39;Cindy&#39;);
+INSERT INTO org VALUES(&#39;Gail&#39;,&#39;Cindy&#39;);
+INSERT INTO org VALUES(&#39;Lindy&#39;,NULL);
+INSERT INTO org VALUES(&#39;John&#39;,&#39;Lindy&#39;);
+INSERT INTO org VALUES(&#39;Luke&#39;,&#39;John&#39;);
+INSERT INTO org VALUES(&#39;Megan&#39;,&#39;Lindy&#39;);&quot;
+values &lt;- stringr::str_split(values, pattern = &quot;\n&quot;, simplify = TRUE) %&gt;% as.character()
+purrr::map(values, function(x) dbExecute(db, x)) %&gt;% invisible()
+
+dbGetQuery(conn = db, &quot;
+WITH RECURSIVE
+  under_alice(name,level) AS (
+    VALUES(&#39;Alice&#39;,0)
+    UNION ALL
+    SELECT org.name, under_alice.level+1
+      FROM org JOIN under_alice ON org.boss=under_alice.name
+     ORDER BY 2 DESC
+  )
+SELECT substr(&#39;..........&#39;,1,level*3) || name AS structure FROM under_alice;
+&quot;)</code></pre>
+<pre><code>##    structure
+## 1      Alice
+## 2     ...Bob
+## 3 ......Dave
+## 4 ......Emma
+## 5   ...Cindy
+## 6 ......Fred
+## 7 ......Gail</code></pre>
+<pre class="r"><code>dbGetQuery(conn = db, &quot;
+WITH RECURSIVE
+  under_alice(name,level) AS (
+    SELECT org.name, 0 as level from org where org.boss IS NULL
+    UNION ALL
+    SELECT org.name, under_alice.level+1
+      FROM org JOIN under_alice ON org.boss=under_alice.name
+     ORDER BY 2 DESC
+  )
+SELECT name || substr(&#39;..........&#39;,1,level*3) AS structure FROM under_alice;
+&quot;)</code></pre>
+<pre><code>##     structure
+## 1       Alice
+## 2      Bob...
+## 3  Dave......
+## 4  Emma......
+## 5    Cindy...
+## 6  Fred......
+## 7  Gail......
+## 8       Lindy
+## 9     John...
+## 10 Luke......
+## 11   Megan...</code></pre>
+</div>
+<div id="query-explainer-and-query-optimizer" class="section level2">
+<h2>Query explainer and query optimizer</h2>
+<p>Query explainer and query optimizer are two additional topics that are worthwhile to be aware of. In a nutshell, SQL engine before executing the query prepares an execution plan (e.g. which indexes are going to be used, in which order tables are going to be join, etc). If the query is too slow you might check the prepared plan to see what’s going on - e.g. you might notice that SQL engine is performing full table scan (reads all rows) rather than using an index.</p>
+<p>As always query plan output is database specific, so all the knowledge gathered for one engine might not be transferable to the other one.</p>
+<p>A good place to start is as always SQLite site:
+- <a href="https://www.sqlite.org/eqp.html" class="uri">https://www.sqlite.org/eqp.html</a> - query explain.
+- <a href="https://www.sqlite.org/optoverview.html" class="uri">https://www.sqlite.org/optoverview.html</a> query optimizer.</p>
+<pre class="r"><code>con &lt;- dbplyr::nycflights13_sqlite()
+
+tbl_res &lt;- tbl(con, &quot;flights&quot;) %&gt;% group_by(year, month, day) %&gt;% count(name = &quot;daily&quot;) %&gt;%
+  group_by(year, month) %&gt;% mutate(monthly = sum(daily)) %&gt;% mutate(dayily_ratio = daily/as.numeric(monthly))
+
+query &lt;- capture.output(tbl_res %&gt;% show_query())
+dbGetQuery(con, paste(&quot;EXPLAIN QUERY PLAN&quot;, paste(query[-1], collapse = &quot;\n&quot;)))</code></pre>
+<pre><code>##    id parent notused                                                   detail
+## 1   2      0       0                                  CO-ROUTINE (subquery-2)
+## 2   5      2       0                                  CO-ROUTINE (subquery-4)
+## 3   7      5       0                                  CO-ROUTINE (subquery-1)
+## 4  13      7       0 SCAN flights USING COVERING INDEX flights_year_month_day
+## 5  46      5       0                                        SCAN (subquery-1)
+## 6  59      5       0                             USE TEMP B-TREE FOR ORDER BY
+## 7  79      2       0                                        SCAN (subquery-4)
+## 8 139      0       0                                        SCAN (subquery-2)</code></pre>
+</div>
+<div id="row-vs-columnar-databases" class="section level2">
+<h2>Row vs columnar databases</h2>
+<p>There are many different kinds of databases - relational, SQL, noSQL, etc. One possible distinction might be a result of how the data is organized in
+the table. In row-oriented database all data associated with the same record are stored together, next to each other. This layout makes adding new records very fast. Contrary, in the columnar layout all data that belongs to the same column are stored next to each other. This approach makes the data much more friendly for the processor cache, which makes columnar databases more performant. Usually for analytics you should use columnar databses.</p>
+<p>The example below shows the comparison of the execution time between row-oriented database (SQLite) and columnar database (duckdb) for simeple aggregation query. No surprises, columnar database is faster.</p>
+<pre class="r"><code>con &lt;- DBI::dbConnect(RSQLite::SQLite(), tempfile())
+
+letter_column &lt;- sample(LETTERS, replace = TRUE, size = 1e6)
+value &lt;- rnorm(n = length(letter_column), mean = as.integer(charToRaw(paste(letter_column, collapse = &quot;&quot;))))
+letter_table &lt;- tibble(letter = letter_column, value = value) %&gt;% arrange(letter)
+
+dbWriteTable(con, &quot;letter&quot;, letter_table)
+system.time(tbl(con, &quot;letter&quot;) %&gt;% group_by(letter) %&gt;% summarise(mean(value)) %&gt;% collect())</code></pre>
+<pre><code>##    user  system elapsed 
+##   0.364   0.040   0.406</code></pre>
+<pre class="r"><code>library(duckdb)
+con_duck &lt;- dbConnect(duckdb(tempfile()))
+dbWriteTable(con_duck, &quot;letter&quot;, letter_table)
+system.time(tbl(con_duck, &quot;letter&quot;) %&gt;% group_by(letter) %&gt;% summarise(mean(value)) %&gt;% collect())</code></pre>
+<pre><code>##    user  system elapsed 
+##   0.111   0.012   0.095</code></pre>
+<pre class="r"><code>microbenchmark::microbenchmark(times = 10,
+  tbl(con, &quot;letter&quot;) %&gt;% group_by(letter) %&gt;% summarise(mean(value)) %&gt;% collect(),
+  tbl(con_duck, &quot;letter&quot;) %&gt;% group_by(letter) %&gt;% summarise(mean(value)) %&gt;% collect()
+)</code></pre>
+<pre><code>## Unit: milliseconds
+##                                                                                        expr
+##       tbl(con, &quot;letter&quot;) %&gt;% group_by(letter) %&gt;% summarise(mean(value)) %&gt;%      collect()
+##  tbl(con_duck, &quot;letter&quot;) %&gt;% group_by(letter) %&gt;% summarise(mean(value)) %&gt;%      collect()
+##        min       lq      mean    median       uq      max neval cld
+##  397.81023 402.9688 407.99276 407.74619 412.8911 420.9804    10   b
+##   91.00724  92.7953  95.55097  94.64661  98.0982 102.3962    10  a</code></pre>
+<pre class="r"><code>DBI::dbExecute(con, &quot;CREATE INDEX IF NOT EXISTS letters_index ON letter (letter)&quot;)</code></pre>
+<pre><code>## [1] 0</code></pre>
+<pre class="r"><code>DBI::dbExecute(con_duck, &quot;CREATE INDEX IF NOT EXISTS letters_index ON letter (letter)&quot;)</code></pre>
+<pre><code>## [1] 0</code></pre>
+<pre class="r"><code>microbenchmark::microbenchmark(times = 10,
+  tbl(con, &quot;letter&quot;) %&gt;% group_by(letter) %&gt;% summarise(mean(value)) %&gt;% collect(),
+  tbl(con_duck, &quot;letter&quot;) %&gt;% group_by(letter) %&gt;% summarise(mean(value)) %&gt;% collect()
+)</code></pre>
+<pre><code>## Unit: milliseconds
+##                                                                                        expr
+##       tbl(con, &quot;letter&quot;) %&gt;% group_by(letter) %&gt;% summarise(mean(value)) %&gt;%      collect()
+##  tbl(con_duck, &quot;letter&quot;) %&gt;% group_by(letter) %&gt;% summarise(mean(value)) %&gt;%      collect()
+##        min        lq      mean   median        uq       max neval cld
+##  190.70744 194.32140 197.48504 197.4265 201.46006 201.73719    10   b
+##   88.24021  89.30333  91.04687  91.0775  91.92758  94.76335    10  a</code></pre>
+</div>
+</div>
+<div id="rendering-sql-using-r-code." class="section level1">
+<h1>Rendering SQL using R code.</h1>
+<p>When you programmatically create SQL in R, DO NOT USE <code>paste</code> or <code>glue</code> to fill parameters. Use <code>glue_sql</code> instead. It sanitizes the input, making it safe from
+different kinds of attacks that allows unauthorized person to access or destroy data in your tables.</p>
+<pre class="r"><code>important_table &lt;- tibble(id = 1:5, value = LETTERS[1:5])
+
+id &lt;- 1
+(sql &lt;- glue::glue(&quot;SELECT * FROM important_table WHERE id = &#39;{id}&#39;&quot;))</code></pre>
+<pre><code>## SELECT * FROM important_table WHERE id = &#39;1&#39;</code></pre>
+<pre class="r"><code>sqldf(sql)</code></pre>
+<pre><code>##   id value
+## 1  1     A</code></pre>
+<pre class="r"><code>id &lt;- &quot;1&#39; OR 1=1 --;&quot;
+(sql &lt;- glue::glue(&quot;SELECT * FROM important_table WHERE id = &#39;{id}&#39;&quot;))</code></pre>
+<pre><code>## SELECT * FROM important_table WHERE id = &#39;1&#39; OR 1=1 --;&#39;</code></pre>
+<pre class="r"><code>sqldf(sql)</code></pre>
+<pre><code>##   id value
+## 1  1     A
+## 2  2     B
+## 3  3     C
+## 4  4     D
+## 5  5     E</code></pre>
+<p>Now let’s see how to destroy a table:</p>
+<pre class="r"><code>db &lt;- dbConnect(RSQLite::SQLite(), tempfile())
+dbWriteTable(db, &quot;important_table&quot;, important_table)
+tbl(db, &quot;important_table&quot;)</code></pre>
+<pre><code>## # Source:   table&lt;important_table&gt; [5 x 2]
+## # Database: sqlite 3.40.1 [/tmp/Rtmpw5T4oT/file23c0ad57f4b490]
+##      id value
+##   &lt;int&gt; &lt;chr&gt;
+## 1     1 A    
+## 2     2 B    
+## 3     3 C    
+## 4     4 D    
+## 5     5 E</code></pre>
+<pre class="r"><code>id &lt;- 1
+(sql &lt;- glue::glue(&quot;UPDATE important_table SET value = &#39;XD&#39; WHERE id = &#39;{id}&#39;&quot;))</code></pre>
+<pre><code>## UPDATE important_table SET value = &#39;XD&#39; WHERE id = &#39;1&#39;</code></pre>
+<pre class="r"><code>dbExecute(db, sql)</code></pre>
+<pre><code>## [1] 1</code></pre>
+<pre class="r"><code>tbl(db, &quot;important_table&quot;)</code></pre>
+<pre><code>## # Source:   table&lt;important_table&gt; [5 x 2]
+## # Database: sqlite 3.40.1 [/tmp/Rtmpw5T4oT/file23c0ad57f4b490]
+##      id value
+##   &lt;int&gt; &lt;chr&gt;
+## 1     1 XD   
+## 2     2 B    
+## 3     3 C    
+## 4     4 D    
+## 5     5 E</code></pre>
+<pre class="r"><code># Destroy the whole table!
+# https://xkcd.com/327/
+id &lt;- &quot;1&#39; OR 1=1 --;&quot;
+(sql &lt;- glue::glue(&quot;UPDATE important_table SET value = &#39;XD&#39; WHERE id = &#39;{id}&#39;&quot;))</code></pre>
+<pre><code>## UPDATE important_table SET value = &#39;XD&#39; WHERE id = &#39;1&#39; OR 1=1 --;&#39;</code></pre>
+<pre class="r"><code>dbExecute(db, sql)</code></pre>
+<pre><code>## [1] 5</code></pre>
+<pre class="r"><code>tbl(db, &quot;important_table&quot;)</code></pre>
+<pre><code>## # Source:   table&lt;important_table&gt; [5 x 2]
+## # Database: sqlite 3.40.1 [/tmp/Rtmpw5T4oT/file23c0ad57f4b490]
+##      id value
+##   &lt;int&gt; &lt;chr&gt;
+## 1     1 XD   
+## 2     2 XD   
+## 3     3 XD   
+## 4     4 XD   
+## 5     5 XD</code></pre>
+<pre class="r"><code>## Now with glue_sql
+db &lt;- dbConnect(RSQLite::SQLite(), tempfile())
+dbWriteTable(db, &quot;important_table&quot;, important_table)
+tbl(db, &quot;important_table&quot;)</code></pre>
+<pre><code>## # Source:   table&lt;important_table&gt; [5 x 2]
+## # Database: sqlite 3.40.1 [/tmp/Rtmpw5T4oT/file23c0ad486d7ae3]
+##      id value
+##   &lt;int&gt; &lt;chr&gt;
+## 1     1 A    
+## 2     2 B    
+## 3     3 C    
+## 4     4 D    
+## 5     5 E</code></pre>
+<pre class="r"><code>id &lt;- &quot;1&quot;
+(sql &lt;- glue::glue_sql(&quot;UPDATE important_table SET value = &#39;XD&#39; WHERE id = {id}&quot;, .con = db))</code></pre>
+<pre><code>## &lt;SQL&gt; UPDATE important_table SET value = &#39;XD&#39; WHERE id = &#39;1&#39;</code></pre>
+<pre class="r"><code>dbExecute(db, sql)</code></pre>
+<pre><code>## [1] 1</code></pre>
+<pre class="r"><code>tbl(db, &quot;important_table&quot;)</code></pre>
+<pre><code>## # Source:   table&lt;important_table&gt; [5 x 2]
+## # Database: sqlite 3.40.1 [/tmp/Rtmpw5T4oT/file23c0ad486d7ae3]
+##      id value
+##   &lt;int&gt; &lt;chr&gt;
+## 1     1 XD   
+## 2     2 B    
+## 3     3 C    
+## 4     4 D    
+## 5     5 E</code></pre>
+<pre class="r"><code># Table is safe!
+id &lt;- &quot;1&#39; OR 1=1 --;&quot;
+(sql &lt;- glue::glue_sql(&quot;UPDATE important_table SET value = &#39;XD&#39; WHERE id = {id}&quot;, .con = db))</code></pre>
+<pre><code>## &lt;SQL&gt; UPDATE important_table SET value = &#39;XD&#39; WHERE id = &#39;1&#39;&#39; OR 1=1 --;&#39;</code></pre>
+<pre class="r"><code>dbExecute(db, sql)</code></pre>
+<pre><code>## [1] 0</code></pre>
+<pre class="r"><code>tbl(db, &quot;important_table&quot;)</code></pre>
+<pre><code>## # Source:   table&lt;important_table&gt; [5 x 2]
+## # Database: sqlite 3.40.1 [/tmp/Rtmpw5T4oT/file23c0ad486d7ae3]
+##      id value
+##   &lt;int&gt; &lt;chr&gt;
+## 1     1 XD   
+## 2     2 B    
+## 3     3 C    
+## 4     4 D    
+## 5     5 E</code></pre>
+<p>Moral is short - use <code>glue_sql</code> or <code>dbplyr</code> or create SQL queries.</p>
+</div>
+<div id="conclusion" class="section level1">
+<h1>Conclusion</h1>
+<p>The list of different topics presented above is not exhaustive, probably not even in a correct order of importance. But it should be good start.</p>
+</div>
