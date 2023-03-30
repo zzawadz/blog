@@ -1,0 +1,787 @@
+---
+title: "api"
+output: html_document
+date: "2023-03-24"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# API and R
+
+An ability to communicate via HTTP API has become a standard in the software industry. Nearly every programming language on earth has some way to expose API or send GET/POST/PUT requests. R is no different. In this post, I will show how to create basic API using `plumber` package, how to make it more scalable (stateless, cache, load balancer), and how to consume it using `python`, `curl` and R `httr` package.
+
+## Some preparation
+
+The whole document is written using `rmarkdown`, so it means that you take the code and reproduce everything by yourself.
+
+```{r}
+# The files required to make this document are stored in tmp directory
+ dir.create("tmp", recursive = TRUE, showWarnings = FALSE)
+
+# The function below is used to get the content of code chunk and 
+# output it to a file to make it available for the `plumber` package.
+write_chunk_file <- function(chunk_name, dest_file) {
+  lines <- readLines("api.Rmd", warn = FALSE)  
+  
+  line_start <- grep(lines, pattern = paste("```\\{r", chunk_name))+1
+  line_end <- grep(lines, pattern = "```")
+  line_end <- head(line_end[line_end > line_start],1) - 1
+  
+  api_code <- c(lines[line_start:line_end], "")
+  
+  writeLines(api_code, con = dest_file)
+}
+
+# When an API is started it might take some time to initialize
+# this function stops the main execution and wait until
+# plumber API is ready to take queries.
+wait_for_api <- function(log_path, timeout = 60, check_every = 1) {
+  times <- timeout / check_every
+  
+  for(i in seq_len(times)) {
+    Sys.sleep(check_every)
+    if(any(grepl(readLines(log_path), pattern = "Running plumber API"))) {
+      return(invisible())
+    }
+  }
+  stop("Waiting timed!")
+}
+```
+
+Oh, in some examples I am using `redis`, so don't forget about starting a simple `redis` server. At the end of the script I am 
+turning `redis`` off, so make sure that you are not using it for something else. Don't run this code on a production server!
+
+```{bash}
+redis-server --daemonize yes
+```
+
+`redis` is started in a background, so it might be worthwile to wait until it is 
+fully operational.
+
+```{r}
+wait_for_redis <- function(timeout = 60, check_every = 1) {
+  
+  times <- timeout / check_every
+  
+  for(i in seq_len(times)) {
+    Sys.sleep(check_every)
+    
+    status <- suppressWarnings(system2("redis-cli", "PING", stdout = TRUE, stderr = TRUE) == "PONG")
+    
+    if(status) {
+      return(invisible())
+    }
+  }
+  stop("Redis waiting timed!")
+  
+}
+
+wait_for_redis()
+```
+
+# Gene APIv1
+
+Let's start with saving the API code into a file:
+```{r}
+# Write the content of the next code chunk to tmp/api_v1.R
+write_chunk_file("api_v1", "tmp/api_v1.R")
+```
+
+Ok. Now, let's talk about the main topic - how to create an API using `plumber` (which is not that hard, in fact go visit https://www.rplumber.io/index.html, grab the basic example and you will have something in 10 minutes), and how to create
+it in a way that will prevent many headaches in a future.
+
+First thing - logging. I try to log as much as possible, especially in a hot points like database reads and writes, interactions with other systems etc. Then, when there will be an issue in the future (believe me, there will be) I should be able to diagnose the problem just by looking at the logs alone. Logging is like `print debugging` (putting `print("I am here"), print("I am here 2")` everywhere), but done ahead of time. I always try to think about what information might be needed to make a correct diagnosis, so logging variable values is a must. `loggger` and `glue` packages are your friends. 
+
+It might be useful to add some unique request identifier to be able to track (I am doing that in `setuuid` filter) it across the whole pipeline (a single request might be passed across many functions). You might also add some other identifiers, e.g. `MACHINE_ID` - your API might be deployed on many machines, so it might be useful for diagnosing if the problem is associated with a specific instance or it is global.
+
+In general you should not worry about the size of the logs, even if you generate ~10KB per request, it will take 100000 requests to generate 1GB. For the `plumber` API 100000 requests generated in a short time is A LOT. In such scenario you should look into other languages. And if you have that many requests, you probably have a budget for storing those logs:)
+
+It might be a good idea to setup some automatic system to monitor those logs (e.g. `Amazon CloudWatch` if you are on AWS). In my example it would definitely monitor `Error when reading key from cache` string. That would give me an information about ongoing problem with API cache.
+
+Speaking about cache, you might need it to save a lot of resources. Caching is a very broad topic with many pitfalls (what to cache, stale cache, etc) so I won't spend too much time on it, but you might want to read at least a little bit about it. In my example, I am using `redis` key-value store, which allows me to save the result for a given request, and if there is another requests that asks for the same data, I can read it from `redis` much faster. 
+
+Note that you could use `memoise` package to achieve similar thing using R only. However, `redis` might be useful when you are using multiple workers. Then, one cached request becomes available for all other R processes. But if you need to deploy just one process, `memoise` is fine, and it does not introduce another dependency, which is always a plus.
+
+
+```{r api_v1, eval=FALSE}
+library(biomaRt)
+library(redux)
+redis <- redux::hiredis()
+mart <- useDataset("hsapiens_gene_ensembl", useMart("ensembl"))
+
+#* @apiTitle Plumber Gene id/name API.
+#* @apiDescription Simple API.
+
+info <- function(req, ...) {
+  do.call(
+    log_info,
+    c(
+      list("MachineId: {MACHINE_ID}, ReqId: {req$request_id}"),
+      as.list(...),
+      .sep = ", "
+    ), envir = parent.frame(1)
+  )
+}
+
+#* Log some information about the incoming request
+#* https://www.rplumber.io/articles/routing-and-input.html - this is a must read!
+#* @filter setuuid
+function(req) {
+  req$request_id <- UUIDgenerate(n = 1)
+  plumber::forward()
+}
+
+#* Log some information about the incoming request
+#* @filter logger
+function(req) {
+  
+  if(!grepl(req$PATH_INFO, pattern = "PATH_INFO")) {
+    info(
+      req,
+      "REQUEST_METHOD: {req$REQUEST_METHOD}",
+      "PATH_INFO: {req$PATH_INFO}",
+      "HTTP_USER_AGENT: {req$req$HTTP_USER_AGENT}",
+      "REMOTE_ADDR: {req$REMOTE_ADDR}",
+    )
+  }
+  plumber::forward()
+}
+
+get_from_cache <- function(key, redis, req) {
+  result <- tryCatch({
+    r <- redis$GET(key)
+    if(!is.null(r)) {
+      info(req, "Key `{key}` read from cache.")
+      r <- redux::bin_to_object(r)
+    } else {
+      info(req, "Key `{key}` cache miss.")
+      NULL
+    }
+  }, error = function(e) {
+    info(req, "Error when reading key from cache: ", e$message)
+    return(NULL)
+  })
+}
+
+set_in_cache <- function(key, value, redis, req) {
+  
+  tryCatch({
+    redis$SET(key, redux::object_to_bin(value))
+    info(req, "Key `{key}` cached in redis")
+  }, error = function(e) {
+    info(req, "Key `{key}` falied to be cached in  redis: ", e$message)
+  })
+  
+  return(invisible(NULL))
+}
+
+#* @serializer unboxedJSON
+#* @get /genes/ensgs/<ensg>
+get_gene_name <- function(req, ensg) {
+  res <- get_from_cache(ensg, redis, req)
+  if(!is.null(res)) {
+    return(res)
+  } else {
+    res <- as.list(getBM(
+      filters = "ensembl_gene_id",
+      attributes = c("ensembl_gene_id", "hgnc_symbol", "description"),
+      values = ensg,
+      mart = mart
+    ))
+    set_in_cache(ensg, res, redis, req)
+    res
+  }
+}
+
+#* @serializer unboxedJSON
+#* @get /genes/symbols/<symbol>
+get_gene_ensg <- function(req, symbol) {
+  res <- get_from_cache(symbol, redis, req)
+  if(!is.null(res)) {
+    return(res)
+  } else {
+    res <- as.list(getBM(
+      filters = "hgnc_symbol",
+      attributes = c("ensembl_gene_id", "hgnc_symbol", "description"),
+      values = symbol,
+      mart = mart
+    ))
+    set_in_cache(symbol, res, redis, req)
+    res
+  }
+}
+```
+
+To run the API in background, one additional file is needed. Here I am creating it
+using a simple bash script.
+
+```{bash}
+cat << EOT > tmp/run_api.R
+library(plumber)
+library(optparse)
+library(uuid)
+library(logger)
+
+MACHINE_ID <- "MAIN_1"
+PORT_NUMBER <- 8761
+
+log_level(logger::TRACE)
+  
+pr("tmp/api_v1.R") %>%
+  pr_run(port = PORT_NUMBER)
+EOT
+
+Rscript tmp/run_api.R > tmp/API_LOG.log 2>&1 & 
+echo $! > tmp/API_PID
+disown
+
+```
+
+Similarly to `redis` I need to wait till the API is ready to serve.
+
+```{r}
+wait_for_api("tmp/API_LOG.log")
+```
+
+# Using API
+
+The best things about API is that they rely on the HTTP protocol which makes them
+extremely easy to use from various environments (bash, python, R, Java, you name it).
+There's no need to install special libraries (however they might useful to have more native experience),
+you can just send GET or POST request and you are done.
+
+## R
+
+The statement about non needing to install special libraries to communicate with APIs was not exactly true when it comes to R. To have a pleasant experience `httr` library is needed. Then you can send `GET/POST` requests with no problem. The object returned by these functions contains a lot of information. For example `status_code` gives an information about, well, status of the response. In most cases when you receive `200` then it's ok, any other code might require some investigation. For the list of all possible responses codes please refer to: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status
+
+
+```{r}
+result <- httr::GET("http://127.0.0.1:8761/genes/symbols/KRAS")
+result$request
+result$status_code
+httr::content(result)
+```
+
+## Bash
+
+In bash, good old `curl` is your friend. To process the ouput which usually comes as json, you can use `jq` tool (https://stedolan.github.io/jq/). `jq` requires some practice, like any other command line tool (`awk`, `sed`, `grep`, etc), but if you need to work in bash, `jq` might be way faster than running `python` or `R`.
+
+```{bash}
+curl -s -X GET "http://127.0.0.1:8761/genes/ensgs/ENSG00000133703"
+
+# Just symbol
+curl -s -X GET "http://127.0.0.1:8761/genes/ensg/ENSG00000133703" | jq '.hgnc_symbol'
+
+curl -s -X GET "http://127.0.0.1:8761/genes/ensgs/ENSG00000133703" | 
+  jq '(.hgnc_symbol) + " is a symbol for " + (.ensembl_gene_id) + " ensg"'
+
+curl -s -X GET "http://127.0.0.1:8761/genes/symbols/KRAS" | jq '.description'
+
+```
+
+## Python
+
+No surprises in Python - using API is really simple. Just grab `requests`
+module and you are ready to go.
+
+```{python}
+import requests
+
+x = requests.get('http://127.0.0.1:8761/genes/ensgs/ENSG00000133703')
+x.json()
+```
+
+# Creating R package for interacting with an API
+
+Ok. Now we have our API up and running and we can communicate with it using `curl` and other tools. It kinda works,
+but we can do better. We can wrap all the API endpoints (the URL paths that we use to send the requests) in R functions.
+Then we can give the users nice R package with normal functions to interact with our API. An example how to do that can be found here:
+https://httr.r-lib.org/articles/api-packages.html. However I also provide simple example for our API.
+
+```{r}
+library(httr)
+
+# Print API object
+print.gene_api <- function(x, ...) {
+  cat("<GENE_API ", x$path, ">\n", sep = "")
+  str(x$content)
+  invisible(x)
+}
+
+# Workhorse function - it handles basic stuff like errors (status code other than 200),
+# and parsing the output.
+gene_api <- function(path) {
+  
+  gene_api_path <- Sys.getenv("GENE_API_PATH", "http://127.0.0.1:8761")
+  url <- modify_url(gene_api_path, path = path)
+  resp <- GET(url)
+  if (http_type(resp) != "application/json") {
+    stop("API did not return json", call. = FALSE)
+  }
+  
+  if (status_code(resp) != 200) {
+    stop(
+      sprintf(
+        "Gene API request failed [%s]\n%s\n<%s>", 
+        status_code(resp),
+        parsed$message,
+        parsed$documentation_url
+      ),
+      call. = FALSE
+    )
+  }
+  
+  parsed <- jsonlite::fromJSON(content(resp, "text", encoding = "UTF-8"), simplifyVector = FALSE)
+  structure(
+    list(
+      content = parsed,
+      path = path,
+      response = resp
+    ),
+    class = "gene_api"
+  )
+}
+
+# Raw usage
+gene_api("genes/symbols/KRAS")
+gene_api("genes/ensgs/ENSG00000133703")
+
+# Funcion wrappers for the most important API endpoints
+ga_symbol_info <- function(symbol) {
+  checkmate::assert_character(symbol, min.chars = 1, any.missing = FALSE, len = 1)
+  gene_api(glue::glue("genes/symbols/{symbol}"))$content
+}
+
+ga_ensg_info <- function(ensg) {
+  checkmate::assert_character(ensg, min.chars = 1, any.missing = FALSE, len = 1)
+  gene_api(glue::glue("genes/ensgs/{ensg}"))$content
+}
+
+ga_symbol_info("KRAS")
+ga_ensg_info("ENSG00000133703")
+
+```
+
+# APIv2 - with authorization and cookies
+
+First, create a cookie key that will be used to encrypt cookies sent to the user.
+
+```{r}
+library(dplyr)
+library(DBI)
+library(RSQLite)
+
+pswd_file <- "tmp/cookie_pass_gene_api"
+cat(plumber::random_cookie_key(), file = pswd_file)
+Sys.chmod(pswd_file, mode = "0600")
+
+db_file <- "tmp/user-info.sqlite"
+if(file.exists(db_file)) unlink(db_file)
+db <- dbConnect(RSQLite::SQLite(), "tmp/user-info.sqlite")
+
+dbWriteTable(conn = db, name = "apikeys",
+  data.frame(
+    user    = paste0("user", 1:5),
+    api_key = purrr::map_chr(1:5, digest::digest)
+  ), overwrite = TRUE
+)
+dbDisconnect(db)
+
+write_chunk_file("api_v2", "tmp/api_v2.R")
+```
+
+
+```{r api_v2, eval=FALSE}
+library(plumber)
+library(dplyr)
+library(dbplyr)
+library(pool)
+
+pool <- dbPool(
+  RSQLite::SQLite(), 
+  dbname = "user-info.sqlite", 
+  idleTimeout = 10,
+  minSize = 0,
+  onCreate = function(con) {
+    logger::log_info("Database connection created")
+    con
+  }
+)
+
+redis <- redux::hiredis()
+
+authorize <- function(req, user_key) {
+  
+  key <- tbl(pool, "apikeys") %>% filter(api_key == user_key) %>% collect()
+  if(nrow(key) == 0) {
+    list(
+      status_code = 401
+    )
+  } else {
+    token <- digest::digest(paste0(key$api_key, uuid::UUIDgenerate()))
+    valid_time <- 10L
+    token_valid_date <- Sys.time() + valid_time
+    redis$SET(token, key$user, EX = valid_time)
+    list(
+      token = token,
+      status_code = 200,
+      token_valid_date = token_valid_date 
+    )
+  }
+}
+
+
+#* @get /session_token
+#* @serializer unboxedJSON
+function(req, res) {
+  
+  authorization <- strsplit(req$HEADERS[["authorization"]], split = " ")[[1]]
+  access_token <- authorization[[2]]
+  
+  authorization_status <- authorize(req, access_token)
+  
+  if(authorization_status$status_code != 200) {
+    res$status <- authorization_status$status_code
+    return(list(error = "Access denied!"))
+  }
+  
+  authorization_status
+}
+
+#* @get /session_cookie
+#* @serializer unboxedJSON
+function(req, res) {
+  authorization <- strsplit(req$HEADERS[["authorization"]], split = " ")[[1]]
+  access_token <- authorization[[2]]
+  
+  authorization_status <- authorize(req, access_token)
+  
+  if(authorization_status$status_code != 200) {
+    res$status <- authorization_status$status_code
+    return(list(error = "Access denied!"))
+  }
+  
+  req$session$token <- authorization_status$token
+  authorization_status$token <- NULL
+  authorization_status$info  <- "authorization cookie retrived successfully"
+  
+  names(authorization_status) <- dplyr::case_when(
+    names(authorization_status) == "token_valid_date" ~ "cookie_valid_date",
+    TRUE ~ names(authorization_status)
+  )
+  
+  authorization_status
+  
+}
+
+#* @filter authorization
+function(req, res) {
+  
+  ignored_paths <- c("/session_cookie", "/session_token", "/__docs__")
+  if(!any(stringr::str_detect(req$PATH_INFO, ignored_paths))) {
+    
+    token <- if(!is.null(req$session$token)) {
+      req$session$token
+    } else {
+      strsplit(req$HEADERS[["authorization"]], split = " ")[[1]][[2]]
+    }
+    user <- redis$GET(token)
+    
+    if(is.null(user)) {
+      res$status <- 401
+      return("Cookie/token expired!")
+    }
+    req$user <- user
+  }
+  
+  plumber::forward()
+}
+
+#* @get /session_counter
+#* @serializer unboxedJSON
+function(req, res) {
+  redis$INCR(req$user)
+  value <- redis$GET(req$user)
+  logger::log_info("[session_counter] {req$user}, value: {value}")
+  list("total_number_of_api_calls" = value, user = req$user)
+}
+```
+
+```{bash}
+cat << EOT > run_api.R
+library(plumber)
+library(optparse)
+library(uuid)
+library(logger)
+
+MACHINE_ID <- "MAIN_1"
+PORT_NUMBER <- 8762
+
+log_level(logger::TRACE)
+
+pr("tmp/api_v2.R") %>%
+  pr_cookie(readLines("tmp/cookie_pass_gene_api", warn = FALSE), "token") %>%
+  pr_run(port = PORT_NUMBER)
+EOT
+
+Rscript run_api.R > tmp/API_LOG_v2.log 2>&1 & 
+echo $! > tmp/API_V2_PID
+disown
+
+```
+
+```{r}
+wait_for_api("tmp/API_LOG_v2.log")
+```
+
+```{bash}
+# Set cookie
+COOKIE_PATH=tmp/cookie_auth.txt
+curl -X GET "http://127.0.0.1:8762/session_cookie" \
+  -H "Authorization: Bearer 4b5630ee914e848e8d07221556b0a2fb" \
+  -c $COOKIE_PATH --silent
+
+# Use cookie in curl
+curl -X GET "http://127.0.0.1:8762/session_counter" --cookie $COOKIE_PATH --silent
+curl -X GET "http://127.0.0.1:8762/session_counter" --cookie $COOKIE_PATH --silent
+curl -X GET "http://127.0.0.1:8762/session_counter" --cookie $COOKIE_PATH --silent
+
+sleep 11
+curl -X GET "http://127.0.0.1:8762/session_counter" --cookie $COOKIE_PATH --silent
+
+curl -X GET "http://127.0.0.1:8762/session_token" \
+  -H "Authorization: Bearer 4b5630ee914e848e8d07221556b0a2fb" \
+  -c $COOKIE_PATH --silent
+
+# API Token
+curl -X GET "http://127.0.0.1:8762/session_token" -H "Authorization: Bearer 4b5630ee914e848e8d07221556b0a2fb" --silent
+
+API_TOKEN=$(curl -X GET "http://127.0.0.1:8762/session_token" -H "Authorization: Bearer 4b5630ee914e848e8d07221556b0a2fb" --silent | jq -r .token)
+echo $API_TOKEN
+curl -X GET "http://127.0.0.1:8762/session_counter" -H "Authorization: Bearer $API_TOKEN" --silent
+```
+
+# APIv3 - API Gateway
+
+In practice, the probability that you will need to implement your own authorization code is quite low. Especially in the cloud environment. Most probably your API will be hidden behind so called API Gateway - it is a single entry point for different API, it performs routing, rate limiting, authentication and authorization.
+
+With API Gateway, your code will be  similar to the first version of the API. Of course make sure to properly configure accesses - e.g. your API servers should be protected with either NACL (Network Access Control List) or security groups (speaking in AWS lingo), so all external and direct accesses are prohibited.
+
+Some useful links for further study:
+- https://tutorialsdojo.com/security-group-vs-nacl/ NACL vs secruity group.
+- https://auth0.com/docs/get-started/identity-fundamentals/authentication-and-authorization - Authentication vs. Authorization - those are two different things!
+- https://microservices.io/patterns/apigateway.html, https://www.redhat.com/en/topics/api/what-does-an-api-gateway-do - API Gateway.
+
+# POST and GET
+
+```{r}
+write_chunk_file("api_post", "tmp/plumber_post.R")
+```
+
+```{r api_post, eval=FALSE}
+library(plumber)
+library(dplyr)
+library(dbplyr)
+library(pool)
+database_path <- tempfile()
+
+# Remove old file if exists to make sure that we have a clean start.
+# In production YOU DON"T WANT TO DO THIS!
+if(file.exists(database_path)) unlink(database_path)
+
+pool <- dbPool(
+  RSQLite::SQLite(), 
+  dbname = database_path, 
+  idleTimeout = 10,
+  minSize = 0,
+  onCreate = function(con) {
+    logger::log_info("Database connection created")
+    con
+  }
+)
+
+dbExecute(pool, "CREATE TABLE IF NOT EXISTS experiments (
+  experiment_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  experiment_name VARCHAR NOT NULL)
+")
+
+dbExecute(pool, "CREATE TABLE IF NOT EXISTS genes_expression (
+  experiment_id INTEGER NOT NULL,
+  sample_id INTEGER NOT NULL,
+  ensg VARCHAR NOT NULL,
+  tpm REAL NOT NULL,
+  FOREIGN KEY(experiment_id) REFERENCES Artists(experiment_id)
+)
+")
+
+if(nrow(tbl(pool, "experiments") %>% filter(experiment_id == 1) %>% collect()) == 0) {
+  
+  experiment_name <- "my_first_experiment"
+  
+  DBI::dbExecute(
+    pool,
+    glue::glue_sql("INSERT INTO experiments (experiment_name) VALUES({experiment_name})", .con = pool)
+  )
+  
+  items <- c(
+    "INSERT INTO genes_expression (experiment_id, sample_id, ensg, tpm) VALUES (1, 1, 'ENSG00000133703', 20.0)",
+    "INSERT INTO genes_expression (experiment_id, sample_id, ensg, tpm) VALUES (1, 2, 'ENSG00000133703', 11.0)",
+    "INSERT INTO genes_expression (experiment_id, sample_id, ensg, tpm) VALUES (1, 3, 'ENSG00000133703', 45.0)",
+    "INSERT INTO genes_expression (experiment_id, sample_id, ensg, tpm) VALUES (1, 1, 'ENSG00000268173', 137.2)",
+    "INSERT INTO genes_expression (experiment_id, sample_id, ensg, tpm) VALUES (1, 2, 'ENSG00000268173', 431.1)",
+    "INSERT INTO genes_expression (experiment_id, sample_id, ensg, tpm) VALUES (1, 3, 'ENSG00000268173', 19.9)"  
+  )
+  
+  purrr::map(items, function(x) DBI::dbExecute(pool, x))
+  
+}
+
+#* @get /experiments/<id>/genes_expression
+#* @serializer unboxedJSON
+function(req, res, id) {
+  result <- tbl(pool, "experiments") %>% filter(experiment_id == id) %>% collect()
+  expressions <- tbl(pool, "genes_expression")
+  
+  if(!is.null(req$args$ensg)) {
+    ensgs <- req$args$ensg
+    expressions <- expressions %>% dplyr::filter(ensg %in% ensgs)
+  }
+  expressions <- expressions %>% select(sample_id, ensg, tpm) %>% collect()
+  list(experiment = result, expressions = expressions)
+}
+
+#* @get /experiments/<id>
+#* @serializer unboxedJSON
+function(req, res, id) {
+  tbl(pool, "experiments") %>% filter(experiment_id == id) %>% collect() %>% as.list
+}
+
+
+#* @post /experiments
+#* @serializer unboxedJSON
+function(req, res) {
+  
+  data <- jsonlite::fromJSON(rawToChar(req$bodyRaw))
+  experiment_name_ <- data$experiment
+  experiment_exists <- nrow(tbl(pool, "experiments") %>% dplyr::filter(experiment_name == experiment_name_) %>% collect()) > 0
+  if(experiment_exists) {
+    res$status <- 409
+    return(paste(data$experiment, "already exists in the database!"))
+  }
+  
+  # TODO: Handle errors in the transaction.
+  # TODO: different way of extracting last added id
+  experiment_id <- pool::poolWithTransaction(pool, function(conn){
+    DBI::dbExecute(conn, glue::glue_sql("INSERT INTO experiments(experiment_name) VALUES({data$experiment})", .con = conn))
+    experiment_id <-
+      DBI::dbGetQuery(
+        conn,
+        glue::glue_sql(
+          .con = conn,
+          "SELECT experiment_id FROM experiments WHERE experiment_name = {data$experiment}"
+        )
+      )$experiment_id
+    
+    data$expressions$experiment_id <- experiment_id
+    insert_sql <- paste(glue::glue_sql(
+      .con = conn,
+      "({experiment_id},{sample_id},{ensg},{tpm})",
+      .envir = data$expressions
+    ), collapse = ", ")
+   insert_sql <- paste("INSERT INTO genes_expression(experiment_id, sample_id, ensg, tpm) VALUES", insert_sql)
+   DBI::dbExecute(conn, insert_sql)  
+   experiment_id
+  })
+  
+  list(experiment_id = experiment_id)
+}
+```
+
+```{bash}
+cat << EOT > tmp/run_api_post.R
+library(plumber)
+library(optparse)
+library(uuid)
+library(logger)
+
+MACHINE_ID <- "MAIN_1"
+PORT_NUMBER <- 8113
+
+log_level(logger::TRACE)
+
+plumb(file='tmp/plumber_post.R') %>%
+  pr_run(port = PORT_NUMBER)
+EOT
+
+Rscript tmp/run_api_post.R > tmp/POST_API_LOG.log 2>&1 & 
+echo $! > tmp/POST_API_PID
+disown
+
+```
+
+```{r}
+wait_for_api("tmp/POST_API_LOG.log")
+```
+
+```{bash}
+curl -X GET "http://127.0.0.1:8113/experiments/1" -H "accept: application/json" --silent
+curl -X GET "http://127.0.0.1:8113/experiments/1/genes_expression?ensg=ENSG00000133703" -H "accept: application/json" --silent
+```
+
+```{r}
+input_to_api <- list(
+  experiment = "my_second_experiment", 
+  expressions = tibble(sample_id = 1:4, ensg = "ENSG00000133703", tpm = c(52.6,14.1,146.5,2000.1))
+)
+
+jsonlite::toJSON(input_to_api, auto_unbox = TRUE, pretty = TRUE)
+```
+
+```{bash}
+curl -X POST "http://127.0.0.1:8113/experiments" --data '
+{
+  "experiment": "my_second_experiment",
+  "expressions": [
+    {
+      "sample_id": 1,
+      "ensg": "ENSG00000133703",
+      "tpm": 52.6
+    },
+    {
+      "sample_id": 2,
+      "ensg": "ENSG00000133703",
+      "tpm": 14.1
+    },
+    {
+      "sample_id": 3,
+      "ensg": "ENSG00000133703",
+      "tpm": 146.5
+    },
+    {
+      "sample_id": 4,
+      "ensg": "ENSG00000133703",
+      "tpm": 2000.1
+    }
+  ]
+} 
+'
+
+```
+
+
+
+# Summary
+
+
+# Clean-up
+
+```{bash}
+# Kill R processes
+for f in tmp/*_PID; do echo $f && kill -15 $(cat $f); done
+
+# Kill redis-server
+kill -15 $(redis-cli INFO | grep process_id | cut -d":" -f2 | sed -e "s/\r//g")
+```
+
