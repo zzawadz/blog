@@ -10,11 +10,15 @@ knitr::opts_chunk$set(echo = TRUE)
 
 # API and R
 
-An ability to communicate via HTTP API has become a standard in the software industry. Nearly every programming language on earth has some way to expose API or send GET/POST/PUT requests. R is no different. In this post, I will show how to create basic API using `plumber` package, how to make it more scalable (stateless, cache, load balancer), and how to consume it using `python`, `curl` and R `httr` package.
+
+Nowadays, it's pretty much expected that software comes with an HTTP API interface. Every programming language out there offers a way to expose APIs or make GET/POST/PUT requests, including `R`. In this post, I'll show you how to create an API using the plumber package. Plus, I'll give you tips on how to make it more production ready - I'll tackle scalability, statelessness, caching, and load balancing. You'll even see how to consume your API with other tools like `python`, `curl`, and the R own `httr` package.
+
+*By the way, you might notice that in some parts of the code, I've included TODO comments. I'm not promising to update this post later (although I might!). The comments are just there to get you thinking about how you might expand on this in a real-world environment.*
+
 
 ## Some preparation
 
-The whole document is written using `rmarkdown`, so it means that you take the code and reproduce everything by yourself.
+The whole document has been created using `rmarkdown`. It means that you take the code and reproduce everything by yourself.
 
 ```{r}
 # The files required to make this document are stored in tmp directory
@@ -50,15 +54,13 @@ wait_for_api <- function(log_path, timeout = 60, check_every = 1) {
 }
 ```
 
-Oh, in some examples I am using `redis`, so don't forget about starting a simple `redis` server. At the end of the script I am 
-turning `redis`` off, so make sure that you are not using it for something else. Don't run this code on a production server!
+Oh, in some examples I am using `redis`. So, before you dive in, make sure to fire up a simple `redis` server. At the end of the script, I'll be turning `redis` off, so you don't want to be using it for anything else at the same time. I just want to remind you that this code isn't meant to be run on a production server. 
 
 ```{bash}
 redis-server --daemonize yes
 ```
 
-`redis` is started in a background, so it might be worthwile to wait until it is 
-fully operational.
+`redis` is launched in a background, , so you might want to wait a little bit to make sure it's fully up and running before moving on.
 
 ```{r}
 wait_for_redis <- function(timeout = 60, check_every = 1) {
@@ -81,28 +83,35 @@ wait_for_redis <- function(timeout = 60, check_every = 1) {
 wait_for_redis()
 ```
 
+Just a quick tip: if you want to double-check that `redis` is totally empty, here's how to do it.
+
+```{bash}
+redis-cli FLUSHALL
+```
+
 # Gene APIv1
 
-Let's start with saving the API code into a file:
+First things first - let's save the API code into a file:
+
 ```{r}
 # Write the content of the next code chunk to tmp/api_v1.R
 write_chunk_file("api_v1", "tmp/api_v1.R")
 ```
 
-Ok. Now, let's talk about the main topic - how to create an API using `plumber` (which is not that hard, in fact go visit https://www.rplumber.io/index.html, grab the basic example and you will have something in 10 minutes), and how to create
-it in a way that will prevent many headaches in a future.
+Alright, now let's dive into the main topic - how to create an API using plumber. It's actually not that difficult - you can head over to https://www.rplumber.io/index.html, grab the basic example, and have something up and running in just 10 minutes! But let's talk about how to write an API that will save you lots of headaches in the future.
 
-First thing - logging. I try to log as much as possible, especially in a hot points like database reads and writes, interactions with other systems etc. Then, when there will be an issue in the future (believe me, there will be) I should be able to diagnose the problem just by looking at the logs alone. Logging is like `print debugging` (putting `print("I am here"), print("I am here 2")` everywhere), but done ahead of time. I always try to think about what information might be needed to make a correct diagnosis, so logging variable values is a must. `loggger` and `glue` packages are your friends. 
+First off, let's talk about logging. I try to log as much as possible, especially in critical areas like database accesses, and interactions with other systems. This way, if there's an issue in the future (and trust me, there will be), I should be able to diagnose the problem just by looking at the logs alone. Logging is like "print debugging" (putting print("I am here"), print("I am here 2") everywhere), but done ahead of time. I always try to think about what information might be needed to make a correct diagnosis, so logging variable values is a must. The `logger` and `glue` packages are your best friends in that area.
 
-It might be useful to add some unique request identifier to be able to track (I am doing that in `setuuid` filter) it across the whole pipeline (a single request might be passed across many functions). You might also add some other identifiers, e.g. `MACHINE_ID` - your API might be deployed on many machines, so it might be useful for diagnosing if the problem is associated with a specific instance or it is global.
 
-In general you should not worry about the size of the logs, even if you generate ~10KB per request, it will take 100000 requests to generate 1GB. For the `plumber` API 100000 requests generated in a short time is A LOT. In such scenario you should look into other languages. And if you have that many requests, you probably have a budget for storing those logs:)
+Next, it might also be useful to add a unique request identifier ((I am doing that in `setuuid` filter)) to be able to track it across the whole pipeline (since a single request might be passed across many functions). You might also want to add some other identifiers, such as MACHINE_ID - your API might be deployed on many machines, so it could be helpful for diagnosing if the problem is associated with a specific instance or if it's a global issue.
 
-It might be a good idea to setup some automatic system to monitor those logs (e.g. `Amazon CloudWatch` if you are on AWS). In my example it would definitely monitor `Error when reading key from cache` string. That would give me an information about ongoing problem with API cache.
+In general you shouldn't worry too much about the size of the logs. Even if you generate ~10KB per request, it will take 100000 requests to generate 1GB. And for the `plumber` API, 100000 requests generated in a short time is A LOT. In such scenario you should look into other languages. And if you have that many requests, you probably have a budget for storing those logs:)
 
-Speaking about cache, you might need it to save a lot of resources. Caching is a very broad topic with many pitfalls (what to cache, stale cache, etc) so I won't spend too much time on it, but you might want to read at least a little bit about it. In my example, I am using `redis` key-value store, which allows me to save the result for a given request, and if there is another requests that asks for the same data, I can read it from `redis` much faster. 
+It might also be a good idea to setup some automatic system to monitor those logs (e.g. `Amazon CloudWatch` if you are on AWS). In my example I would definitely monitor `Error when reading key from cache` string. That would give me an indication of any ongoing problems with API cache.
 
-Note that you could use `memoise` package to achieve similar thing using R only. However, `redis` might be useful when you are using multiple workers. Then, one cached request becomes available for all other R processes. But if you need to deploy just one process, `memoise` is fine, and it does not introduce another dependency, which is always a plus.
+Speaking of cache, you might use it to save a lot of resources. Caching is a very broad topic with many pitfalls (what to cache, stale cache, etc) so I won't spend too much time on it, but you might want to read at least a little bit about it. In my example, I am using `redis` key-value store, which allows me to save the result for a given request, and if there is another requests that asks for the same data, I can read it from `redis` much faster. 
+
+Note that you could use `memoise` package to achieve similar thing using R only. However, `redis` might be useful when you are using multiple workers. Then, one cached request becomes available for all other R processes. But if you need to deploy just one process, `memoise` is fine, and it does not introduce another dependency - which is always a plus.
 
 
 ```{r api_v1, eval=FALSE}
@@ -119,7 +128,7 @@ info <- function(req, ...) {
     log_info,
     c(
       list("MachineId: {MACHINE_ID}, ReqId: {req$request_id}"),
-      as.list(...),
+      list(...),
       .sep = ", "
     ), envir = parent.frame(1)
   )
@@ -142,8 +151,8 @@ function(req) {
       req,
       "REQUEST_METHOD: {req$REQUEST_METHOD}",
       "PATH_INFO: {req$PATH_INFO}",
-      "HTTP_USER_AGENT: {req$req$HTTP_USER_AGENT}",
-      "REMOTE_ADDR: {req$REMOTE_ADDR}",
+      "HTTP_USER_AGENT: {req$HTTP_USER_AGENT}",
+      "REMOTE_ADDR: {req$REMOTE_ADDR}"
     )
   }
   plumber::forward()
@@ -245,17 +254,15 @@ Similarly to `redis` I need to wait till the API is ready to serve.
 wait_for_api("tmp/API_LOG.log")
 ```
 
+And now, API is ready to go.
+
 # Using API
 
-The best things about API is that they rely on the HTTP protocol which makes them
-extremely easy to use from various environments (bash, python, R, Java, you name it).
-There's no need to install special libraries (however they might useful to have more native experience),
-you can just send GET or POST request and you are done.
+APIs are great because they use the HTTP protocol, which makes them incredibly easy to use from different environments like Python, R, Java, and even Bash. One of the best things about this is that you don't need to install any special libraries (although they can be useful for a more native experience). All you have to do is send a GET or POST request and you're good to go.
 
 ## R
 
-The statement about non needing to install special libraries to communicate with APIs was not exactly true when it comes to R. To have a pleasant experience `httr` library is needed. Then you can send `GET/POST` requests with no problem. The object returned by these functions contains a lot of information. For example `status_code` gives an information about, well, status of the response. In most cases when you receive `200` then it's ok, any other code might require some investigation. For the list of all possible responses codes please refer to: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status
-
+In the case of R, you'll need to install the `httr` library to have a pleasant experience. Once you have `httr` installed, you can easily send API requests. The object returned by its functions contains a wealth of information, including the `status_code`, which indicates the status of the response. In most cases, receiving a 200 means everything is okay, but any other code might require further investigation. For a complete list of possible response codes, refer to: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status.
 
 ```{r}
 result <- httr::GET("http://127.0.0.1:8761/genes/symbols/KRAS")
@@ -264,21 +271,48 @@ result$status_code
 httr::content(result)
 ```
 
+Not it might be a good time to look into the logs:
+
+```{r}
+cat(readLines("tmp/API_LOG.log"), sep = "\n")
+```
+
+Two first lines are generated by `plumber` itself, they show on which port API is listening (first line), and on which the swagger UI is available (it's worth to play with swagger to manually test/explore your API).
+
+All 3 following lines are related to the request made by R. The first line gives you some basic information about the request, e.g. that this is `GET` request to `/genes/symbols/KRAS` path. Later on it can be used to see how your API is utilized, which endpoints are used the most, etc.
+
+Second line tells you that this request was not cached. It might be useful to calculate `cache hit ratio` to make sure that your caching strategy is working as expected.
+
+Third entry might be useful to diagnose any problems with writing to `redis`. In this state it just tells you that everything is fine.
+
 ## Bash
 
 In bash, good old `curl` is your friend. To process the ouput which usually comes as json, you can use `jq` tool (https://stedolan.github.io/jq/). `jq` requires some practice, like any other command line tool (`awk`, `sed`, `grep`, etc), but if you need to work in bash, `jq` might be way faster than running `python` or `R`.
 
 ```{bash}
 curl -s -X GET "http://127.0.0.1:8761/genes/ensgs/ENSG00000133703"
+```
 
+```{bash}
+curl -s -X GET "http://127.0.0.1:8761/genes/symbols/BCAT1"
+```
+```{bash}
 # Just symbol
 curl -s -X GET "http://127.0.0.1:8761/genes/ensg/ENSG00000133703" | jq '.hgnc_symbol'
-
+```
+```{bash}
 curl -s -X GET "http://127.0.0.1:8761/genes/ensgs/ENSG00000133703" | 
   jq '(.hgnc_symbol) + " is a symbol for " + (.ensembl_gene_id) + " ensg"'
-
+```
+```{bash}
 curl -s -X GET "http://127.0.0.1:8761/genes/symbols/KRAS" | jq '.description'
+```
 
+Have I told you that I really like `awk` for processing log data? No? Here you have one-liner to calculate cache hit ratio (percentage of the API calls served from the cache).
+
+```{bash}
+awk '{if ($0 ~ /cache miss/) {++miss} else if($0 ~ /read from cache/) {++hit} } 
+      END {print "Cache hit ratio: " hit/(miss+hit)}' tmp/API_LOG.log
 ```
 
 ## Python
@@ -295,10 +329,9 @@ x.json()
 
 # Creating R package for interacting with an API
 
-Ok. Now we have our API up and running and we can communicate with it using `curl` and other tools. It kinda works,
-but we can do better. We can wrap all the API endpoints (the URL paths that we use to send the requests) in R functions.
-Then we can give the users nice R package with normal functions to interact with our API. An example how to do that can be found here:
-https://httr.r-lib.org/articles/api-packages.html. However I also provide simple example for our API.
+Okay, now that we have our API up and running and can communicate with it using tools like curl, it's functional. But we can do better than that. We can wrap all of our API endpoints (the URL paths that we use to send the requests) in R functions, and bundle them together as a package.
+
+An example of how to do this can be found in the following resource: https://httr.r-lib.org/articles/api-packages.html. However, I'll also provide a simple example for our API.
 
 ```{r}
 library(httr)
@@ -318,10 +351,13 @@ gene_api <- function(path) {
   url <- modify_url(gene_api_path, path = path)
   resp <- GET(url)
   if (http_type(resp) != "application/json") {
+    # TODO: what might be the reason? Maybe a better information for the user can
+    # be provided?
     stop("API did not return json", call. = FALSE)
   }
   
   if (status_code(resp) != 200) {
+    # TODO: serve other statuses that make sense (e.g. 201, 402 or 418)
     stop(
       sprintf(
         "Gene API request failed [%s]\n%s\n<%s>", 
@@ -364,9 +400,26 @@ ga_ensg_info("ENSG00000133703")
 
 ```
 
-# APIv2 - with authorization and cookies
 
-First, create a cookie key that will be used to encrypt cookies sent to the user.
+Note that in the code above, I use `checkmate` to verify the parameters passed to the functions. It's very handy, as it checks if the required conditions are met and provides informative messages to users if they are not.
+
+# APIv2 - authentication, authorization, cookies, tokens...
+
+By default, anyone with network access to an API can send requests against it. However, most APIs need to be protected from unauthorized users. Securing an API is a broad topic, and there are various ways to do it, so it is essential to spend some time thinking about it. After all, the last thing anyone wants is to make their API a source of company data leaks. One may need to study things like AWS Cognito, API Gateway, OAuth2, OpenID, etc.
+
+For learning purposes, I created a simple example that uses cookie and access token-based authentication. It's straightforward: to access the API, a user needs to make a call to a special endpoint and provide a unique key generated for each user in advance. (There might be a special process for obtaining those keys.)
+
+- `/session_token` - by calling this endpoint, a user gets a special token 
+that will be valid for some time (e.g. 15 minutes), and it has to be added to each 
+subsequent API request.
+- `/session_cookie` - this endpoint is very similar to the previous one, but the token is encrypted in a cookie.
+The user must add the cookie to each request. It is also valid for a specified period.
+
+
+To encrypt the cookie, I create a key that will be used to secure the content sent to the user. While in this example, the cookie stores credentials, it can store other information as well. Encrypting the cookie ensures that users won't be able to access its content, which can be helpful in some cases.
+
+Then I need to generate some API keys for the users. In my examples they are just hashes obtained from
+`1,2,3,4,5`. However, this is just for illustration purposes.
 
 ```{r}
 library(dplyr)
@@ -381,17 +434,24 @@ db_file <- "tmp/user-info.sqlite"
 if(file.exists(db_file)) unlink(db_file)
 db <- dbConnect(RSQLite::SQLite(), "tmp/user-info.sqlite")
 
+# This will be the table for storing the API keys
 dbWriteTable(conn = db, name = "apikeys",
   data.frame(
     user    = paste0("user", 1:5),
     api_key = purrr::map_chr(1:5, digest::digest)
   ), overwrite = TRUE
 )
+
+# Show the content of the table
+# as you can see "4b5630ee914e848e8d07221556b0a2fb"
+# looks way more professional than "1"
+tbl(db, "apikeys")
 dbDisconnect(db)
 
 write_chunk_file("api_v2", "tmp/api_v2.R")
 ```
 
+Here there's the code for the API:
 
 ```{r api_v2, eval=FALSE}
 library(plumber)
@@ -399,6 +459,8 @@ library(dplyr)
 library(dbplyr)
 library(pool)
 
+# https://github.com/rstudio/pool
+# it's really cool package
 pool <- dbPool(
   RSQLite::SQLite(), 
   dbname = "user-info.sqlite", 
@@ -410,9 +472,33 @@ pool <- dbPool(
   }
 )
 
+# TODO: there's nearly no logging - but it would be
+# worthwhile to add some
+
+# Redis stores the tokens for specified period of time
+# if a token is not present, then it means that the 
+# is not authorized anymore to perform any actions.
+# Note that if you use any database to store the credentials,
+# you have to make it really secure!
 redis <- redux::hiredis()
 
-authorize <- function(req, user_key) {
+# This function checks if the user_key exists
+# in the database. If so, it return a token
+# that either be send as a response or store in a cookie.
+# Redis takes care of expiring the token after specified time.
+# In the end the verification is very easy - if the token exists
+# in the Redis, then the user is authorized to perform
+# specific action.
+authorize <- function(req, valid_time = 10L) {
+  if(!"authorization" %in% names(req$HEADERS)) {
+    res <- list(
+      status_code = 401, msg = "api not provided"
+    )
+    return(res)
+  }
+  
+  authorization <- strsplit(req$HEADERS[["authorization"]], split = " ")[[1]]
+  user_key <- authorization[[2]]
   
   key <- tbl(pool, "apikeys") %>% filter(api_key == user_key) %>% collect()
   if(nrow(key) == 0) {
@@ -421,8 +507,10 @@ authorize <- function(req, user_key) {
     )
   } else {
     token <- digest::digest(paste0(key$api_key, uuid::UUIDgenerate()))
-    valid_time <- 10L
+    
     token_valid_date <- Sys.time() + valid_time
+    
+    # TODO: what should be done when redis is not available?
     redis$SET(token, key$user, EX = valid_time)
     list(
       token = token,
@@ -437,14 +525,11 @@ authorize <- function(req, user_key) {
 #* @serializer unboxedJSON
 function(req, res) {
   
-  authorization <- strsplit(req$HEADERS[["authorization"]], split = " ")[[1]]
-  access_token <- authorization[[2]]
-  
-  authorization_status <- authorize(req, access_token)
+  authorization_status <- authorize(req)
   
   if(authorization_status$status_code != 200) {
     res$status <- authorization_status$status_code
-    return(list(error = "Access denied!"))
+    return(list(error = paste("Access denied!", authorization_status$msg)))
   }
   
   authorization_status
@@ -453,17 +538,20 @@ function(req, res) {
 #* @get /session_cookie
 #* @serializer unboxedJSON
 function(req, res) {
-  authorization <- strsplit(req$HEADERS[["authorization"]], split = " ")[[1]]
-  access_token <- authorization[[2]]
   
-  authorization_status <- authorize(req, access_token)
+  authorization_status <- authorize(req)
   
   if(authorization_status$status_code != 200) {
     res$status <- authorization_status$status_code
-    return(list(error = "Access denied!"))
+    return(list(error = paste("Access denied!", authorization_status$msg)))
   }
   
+  # Content of the encrypted cookies can be set using
+  # req$session${COOKIE_NAME}
   req$session$token <- authorization_status$token
+  
+  # authorization_status will be returned, but it should not 
+  # contain the token in an open text
   authorization_status$token <- NULL
   authorization_status$info  <- "authorization cookie retrived successfully"
   
@@ -479,20 +567,35 @@ function(req, res) {
 #* @filter authorization
 function(req, res) {
   
-  ignored_paths <- c("/session_cookie", "/session_token", "/__docs__")
+  # this filter is called for other endpoints than the 3 specified below:
+  ignored_paths <- c("/session_cookie", "/session_token", "/__docs__", "/openapi.json")
   if(!any(stringr::str_detect(req$PATH_INFO, ignored_paths))) {
-    
+  
+      
     token <- if(!is.null(req$session$token)) {
+      # read from cookie
       req$session$token
     } else {
+      
+      if (!"authorization" %in% names(req$HEADERS)) {
+        # if neither token nor cookie is provided
+        # then it return immediately
+        res$status <- 401
+        return("No cookie or token provided!")
+      }
+      
       strsplit(req$HEADERS[["authorization"]], split = " ")[[1]][[2]]
     }
+    
+    # if user token does not exists in redis, it might mean that
+    # it is expired.
     user <- redis$GET(token)
     
     if(is.null(user)) {
       res$status <- 401
       return("Cookie/token expired!")
     }
+    
     req$user <- user
   }
   
@@ -502,6 +605,8 @@ function(req, res) {
 #* @get /session_counter
 #* @serializer unboxedJSON
 function(req, res) {
+  # Simple endpoint that uses user information to store the
+  # total number of api calls made against it.
   redis$INCR(req$user)
   value <- redis$GET(req$user)
   logger::log_info("[session_counter] {req$user}, value: {value}")
@@ -509,8 +614,11 @@ function(req, res) {
 }
 ```
 
+Now let's write some code to run the API. Note that to use a secure cookie you need to
+make a call to `pr_cookie`.
+
 ```{bash}
-cat << EOT > run_api.R
+cat << EOT > run_api_v2.R
 library(plumber)
 library(optparse)
 library(uuid)
@@ -526,7 +634,7 @@ pr("tmp/api_v2.R") %>%
   pr_run(port = PORT_NUMBER)
 EOT
 
-Rscript run_api.R > tmp/API_LOG_v2.log 2>&1 & 
+Rscript run_api_v2.R > tmp/API_LOG_v2.log 2>&1 & 
 echo $! > tmp/API_V2_PID
 disown
 
@@ -537,24 +645,36 @@ wait_for_api("tmp/API_LOG_v2.log")
 ```
 
 ```{bash}
+curl -X GET "http://127.0.0.1:8762/session_cookie" --silent
+```
+```{bash}
+curl -X GET "http://127.0.0.1:8762/session_counter" --silent
+```
+
+
+```{bash}
 # Set cookie
-COOKIE_PATH=tmp/cookie_auth.txt
 curl -X GET "http://127.0.0.1:8762/session_cookie" \
   -H "Authorization: Bearer 4b5630ee914e848e8d07221556b0a2fb" \
-  -c $COOKIE_PATH --silent
+  -c tmp/cookie_auth.txt --silent
+```
 
+```{bash}
 # Use cookie in curl
-curl -X GET "http://127.0.0.1:8762/session_counter" --cookie $COOKIE_PATH --silent
-curl -X GET "http://127.0.0.1:8762/session_counter" --cookie $COOKIE_PATH --silent
-curl -X GET "http://127.0.0.1:8762/session_counter" --cookie $COOKIE_PATH --silent
+curl -X GET "http://127.0.0.1:8762/session_counter" --cookie tmp/cookie_auth.txt --silent
+curl -X GET "http://127.0.0.1:8762/session_counter" --cookie tmp/cookie_auth.txt --silent
+```
 
+```{bash}
 sleep 11
-curl -X GET "http://127.0.0.1:8762/session_counter" --cookie $COOKIE_PATH --silent
+curl -X GET "http://127.0.0.1:8762/session_counter" --cookie tmp/cookie_auth.txt --silent
 
 curl -X GET "http://127.0.0.1:8762/session_token" \
   -H "Authorization: Bearer 4b5630ee914e848e8d07221556b0a2fb" \
-  -c $COOKIE_PATH --silent
+  -c tmp/cookie_auth.txt --silent
+```
 
+```{bash}
 # API Token
 curl -X GET "http://127.0.0.1:8762/session_token" -H "Authorization: Bearer 4b5630ee914e848e8d07221556b0a2fb" --silent
 
@@ -565,9 +685,9 @@ curl -X GET "http://127.0.0.1:8762/session_counter" -H "Authorization: Bearer $A
 
 # APIv3 - API Gateway
 
-In practice, the probability that you will need to implement your own authorization code is quite low. Especially in the cloud environment. Most probably your API will be hidden behind so called API Gateway - it is a single entry point for different API, it performs routing, rate limiting, authentication and authorization.
+In practice, the probability that you will need to implement your own authorization code is quite low, especially in a cloud environment. Most likely, your API will be hidden behind what is called an API Gateway - a single entry point for different APIs that performs routing, rate limiting, authentication, and authorization.
 
-With API Gateway, your code will be  similar to the first version of the API. Of course make sure to properly configure accesses - e.g. your API servers should be protected with either NACL (Network Access Control List) or security groups (speaking in AWS lingo), so all external and direct accesses are prohibited.
+With an API Gateway, your code will be similar to the first version of the API. However, make sure to properly configure access controls. For example, your API servers should be protected with either a Network Access Control List (NACL) or security groups (speaking in AWS terminology), so that all external and direct accesses are prohibited.
 
 Some useful links for further study:
 - https://tutorialsdojo.com/security-group-vs-nacl/ NACL vs secruity group.
