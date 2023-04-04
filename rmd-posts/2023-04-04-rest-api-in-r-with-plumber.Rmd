@@ -14,6 +14,7 @@ tags:
   - cache
 ---
 
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, message = FALSE)
 ```
@@ -280,7 +281,7 @@ result$status_code
 httr::content(result)
 ```
 
-Not it might be a good time to look into the logs:
+Now it might be a good time to look into the logs:
 
 ```{r}
 cat(readLines("tmp/API_LOG.log"), sep = "\n")
@@ -924,7 +925,7 @@ And in the last step, the request is sent with the `json` containing all the req
 information.
 
 ```{bash}
-curl -X POST "http://127.0.0.1:8113/experiments" --data --silent '
+curl -X POST "http://127.0.0.1:8113/experiments" --silent --data '
 {
   "experiment": "my_second_experiment",
   "expressions": [

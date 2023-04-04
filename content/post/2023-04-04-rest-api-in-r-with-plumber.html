@@ -1,0 +1,951 @@
+---
+title: REST API in R with plumber
+author: Zygmunt Zawadzki
+output: html_document
+date: '2023-04-04'
+tags:
+  - rpkg-plumber
+  - rpkg-redux
+  - rpkg-dbplyr
+  - rpkg-memoise
+  - curl
+  - API
+  - redis
+  - cache
+---
+
+
+
+<div id="api-and-r" class="section level1">
+<h1>API and R</h1>
+<p>Nowadays, it’s pretty much expected that software comes with an HTTP API interface. Every programming language out there offers a way to expose APIs or make GET/POST/PUT requests, including <code>R</code>. In this post, I’ll show you how to create an API using the plumber package. Plus, I’ll give you tips on how to make it more production ready - I’ll tackle scalability, statelessness, caching, and load balancing. You’ll even see how to consume your API with other tools like <code>python</code>, <code>curl</code>, and the R own <code>httr</code> package.</p>
+<p><em>By the way, you might notice that in some parts of the code, I’ve included TODO comments. I’m not promising to update this post later (although I might!). The comments are just there to get you thinking about how you might expand on this in a real-world environment.</em></p>
+<div id="some-preparation" class="section level2">
+<h2>Some preparation</h2>
+<p>The whole document has been created using <code>rmarkdown</code>. It means that you take the code and reproduce everything by yourself.</p>
+<pre class="r"><code># The files required to make this document are stored in tmp directory
+ dir.create(&quot;tmp&quot;, recursive = TRUE, showWarnings = FALSE)
+
+# The function below is used to get the content of code chunk and
+# output it to a file to make it available for the `plumber` package.
+write_chunk_file &lt;- function(chunk_name, dest_file) {
+  lines &lt;- readLines(&quot;2023-04-04-rest-api-in-r-with-plumber.Rmd&quot;, warn = FALSE)
+
+  line_start &lt;- grep(lines, pattern = paste(&quot;```\\{r&quot;, chunk_name))+1
+  line_end &lt;- grep(lines, pattern = &quot;```&quot;)
+  line_end &lt;- head(line_end[line_end &gt; line_start],1) - 1
+
+  api_code &lt;- c(lines[line_start:line_end], &quot;&quot;)
+
+  writeLines(api_code, con = dest_file)
+}
+
+# When an API is started it might take some time to initialize
+# this function stops the main execution and wait until
+# plumber API is ready to take queries.
+wait_for_api &lt;- function(log_path, timeout = 60, check_every = 1) {
+  times &lt;- timeout / check_every
+
+  for(i in seq_len(times)) {
+    Sys.sleep(check_every)
+    if(any(grepl(readLines(log_path), pattern = &quot;Running plumber API&quot;))) {
+      return(invisible())
+    }
+  }
+  stop(&quot;Waiting timed!&quot;)
+}</code></pre>
+<p>Oh, in some examples I am using <code>redis</code>. So, before you dive in, make sure to fire up a simple <code>redis</code> server. At the end of the script, I’ll be turning <code>redis</code> off, so you don’t want to be using it for anything else at the same time. I just want to remind you that this code isn’t meant to be run on a production server.</p>
+<pre class="bash"><code>redis-server --daemonize yes</code></pre>
+<p><code>redis</code> is launched in a background, , so you might want to wait a little bit to make sure it’s fully up and running before moving on.</p>
+<pre class="r"><code>wait_for_redis &lt;- function(timeout = 60, check_every = 1) {
+
+  times &lt;- timeout / check_every
+
+  for(i in seq_len(times)) {
+    Sys.sleep(check_every)
+
+    status &lt;- suppressWarnings(system2(&quot;redis-cli&quot;, &quot;PING&quot;, stdout = TRUE, stderr = TRUE) == &quot;PONG&quot;)
+
+    if(status) {
+      return(invisible())
+    }
+  }
+  stop(&quot;Redis waiting timed!&quot;)
+
+}
+
+dir.create(&quot;tmp&quot;)</code></pre>
+<pre><code>## Warning in dir.create(&quot;tmp&quot;): &#39;tmp&#39; already exists</code></pre>
+<pre class="r"><code>wait_for_redis()</code></pre>
+<p>Just a quick tip: if you want to double-check that <code>redis</code> is totally empty, here’s how to do it.</p>
+<pre class="bash"><code>redis-cli FLUSHALL</code></pre>
+<pre><code>## OK</code></pre>
+</div>
+</div>
+<div id="gene-apiv1" class="section level1">
+<h1>Gene APIv1</h1>
+<p>First things first - let’s save the API code into a file:</p>
+<pre class="r"><code># Write the content of the next code chunk to tmp/api_v1.R
+write_chunk_file(&quot;api_v1&quot;, &quot;tmp/api_v1.R&quot;)</code></pre>
+<p>Alright, now let’s dive into the main topic - how to create an API using plumber. It’s actually not that difficult - you can head over to <a href="https://www.rplumber.io/index.html" class="uri">https://www.rplumber.io/index.html</a>, grab the basic example, and have something up and running in just 10 minutes! But let’s talk about how to write an API that will save you lots of headaches in the future.</p>
+<p>First off, let’s talk about logging. I try to log as much as possible, especially in critical areas like database accesses, and interactions with other systems. This way, if there’s an issue in the future (and trust me, there will be), I should be able to diagnose the problem just by looking at the logs alone. Logging is like “print debugging” (putting print(“I am here”), print(“I am here 2”) everywhere), but done ahead of time. I always try to think about what information might be needed to make a correct diagnosis, so logging variable values is a must. The <code>logger</code> and <code>glue</code> packages are your best friends in that area.</p>
+<p>Next, it might also be useful to add a unique request identifier ((I am doing that in <code>setuuid</code> filter)) to be able to track it across the whole pipeline (since a single request might be passed across many functions). You might also want to add some other identifiers, such as MACHINE_ID - your API might be deployed on many machines, so it could be helpful for diagnosing if the problem is associated with a specific instance or if it’s a global issue.</p>
+<p>In general you shouldn’t worry too much about the size of the logs. Even if you generate ~10KB per request, it will take 100000 requests to generate 1GB. And for the <code>plumber</code> API, 100000 requests generated in a short time is A LOT. In such scenario you should look into other languages. And if you have that many requests, you probably have a budget for storing those logs:)</p>
+<p>It might also be a good idea to setup some automatic system to monitor those logs (e.g. <code>Amazon CloudWatch</code> if you are on AWS). In my example I would definitely monitor <code>Error when reading key from cache</code> string. That would give me an indication of any ongoing problems with API cache.</p>
+<p>Speaking of cache, you might use it to save a lot of resources. Caching is a very broad topic with many pitfalls (what to cache, stale cache, etc) so I won’t spend too much time on it, but you might want to read at least a little bit about it. In my example, I am using <code>redis</code> key-value store, which allows me to save the result for a given request, and if there is another requests that asks for the same data, I can read it from <code>redis</code> much faster.</p>
+<p>Note that you could use <code>memoise</code> package to achieve similar thing using R only. However, <code>redis</code> might be useful when you are using multiple workers. Then, one cached request becomes available for all other R processes. But if you need to deploy just one process, <code>memoise</code> is fine, and it does not introduce another dependency - which is always a plus.</p>
+<pre class="r"><code>library(biomaRt)
+library(redux)
+redis &lt;- redux::hiredis()
+mart &lt;- useDataset(&quot;hsapiens_gene_ensembl&quot;, useMart(&quot;ensembl&quot;))
+
+#* @apiTitle Plumber Gene id/name API.
+#* @apiDescription Simple API.
+
+info &lt;- function(req, ...) {
+  do.call(
+    log_info,
+    c(
+      list(&quot;MachineId: {MACHINE_ID}, ReqId: {req$request_id}&quot;),
+      list(...),
+      .sep = &quot;, &quot;
+    ), envir = parent.frame(1)
+  )
+}
+
+#* Log some information about the incoming request
+#* https://www.rplumber.io/articles/routing-and-input.html - this is a must read!
+#* @filter setuuid
+function(req) {
+  req$request_id &lt;- UUIDgenerate(n = 1)
+  plumber::forward()
+}
+
+#* Log some information about the incoming request
+#* @filter logger
+function(req) {
+
+  if(!grepl(req$PATH_INFO, pattern = &quot;PATH_INFO&quot;)) {
+    info(
+      req,
+      &quot;REQUEST_METHOD: {req$REQUEST_METHOD}&quot;,
+      &quot;PATH_INFO: {req$PATH_INFO}&quot;,
+      &quot;HTTP_USER_AGENT: {req$HTTP_USER_AGENT}&quot;,
+      &quot;REMOTE_ADDR: {req$REMOTE_ADDR}&quot;
+    )
+  }
+  plumber::forward()
+}
+
+get_from_cache &lt;- function(key, redis, req) {
+  result &lt;- tryCatch({
+    r &lt;- redis$GET(key)
+    if(!is.null(r)) {
+      info(req, &quot;Key `{key}` read from cache.&quot;)
+      r &lt;- redux::bin_to_object(r)
+    } else {
+      info(req, &quot;Key `{key}` cache miss.&quot;)
+      NULL
+    }
+  }, error = function(e) {
+    info(req, &quot;Error when reading key from cache: &quot;, e$message)
+    return(NULL)
+  })
+}
+
+set_in_cache &lt;- function(key, value, redis, req) {
+
+  tryCatch({
+    redis$SET(key, redux::object_to_bin(value))
+    info(req, &quot;Key `{key}` cached in redis&quot;)
+  }, error = function(e) {
+    info(req, &quot;Key `{key}` falied to be cached in  redis: &quot;, e$message)
+  })
+
+  return(invisible(NULL))
+}
+
+#* @serializer unboxedJSON
+#* @get /genes/ensgs/&lt;ensg&gt;
+get_gene_name &lt;- function(req, ensg) {
+  res &lt;- get_from_cache(ensg, redis, req)
+  if(!is.null(res)) {
+    return(res)
+  } else {
+    res &lt;- as.list(getBM(
+      filters = &quot;ensembl_gene_id&quot;,
+      attributes = c(&quot;ensembl_gene_id&quot;, &quot;hgnc_symbol&quot;, &quot;description&quot;),
+      values = ensg,
+      mart = mart
+    ))
+    set_in_cache(ensg, res, redis, req)
+    res
+  }
+}
+
+#* @serializer unboxedJSON
+#* @get /genes/symbols/&lt;symbol&gt;
+get_gene_ensg &lt;- function(req, symbol) {
+  res &lt;- get_from_cache(symbol, redis, req)
+  if(!is.null(res)) {
+    return(res)
+  } else {
+    res &lt;- as.list(getBM(
+      filters = &quot;hgnc_symbol&quot;,
+      attributes = c(&quot;ensembl_gene_id&quot;, &quot;hgnc_symbol&quot;, &quot;description&quot;),
+      values = symbol,
+      mart = mart
+    ))
+    set_in_cache(symbol, res, redis, req)
+    res
+  }
+}</code></pre>
+<p>To run the API in background, one additional file is needed. Here I am creating it
+using a simple bash script.</p>
+<pre class="bash"><code>cat &lt;&lt; EOT &gt; tmp/run_api.R
+library(plumber)
+library(optparse)
+library(uuid)
+library(logger)
+
+MACHINE_ID &lt;- &quot;MAIN_1&quot;
+PORT_NUMBER &lt;- 8761
+
+log_level(logger::TRACE)
+
+pr(&quot;tmp/api_v1.R&quot;) %&gt;%
+  pr_run(port = PORT_NUMBER)
+EOT
+
+Rscript tmp/run_api.R &gt; tmp/API_LOG.log 2&gt;&amp;1 &amp;
+echo $! &gt; tmp/API_PID
+disown
+</code></pre>
+<p>Similarly to <code>redis</code> I need to wait till the API is ready to serve.</p>
+<pre class="r"><code>wait_for_api(&quot;tmp/API_LOG.log&quot;)</code></pre>
+<p>And now, API is ready to go.</p>
+</div>
+<div id="using-an-api" class="section level1">
+<h1>Using an API</h1>
+<p>APIs are great because they use the HTTP protocol, which makes them incredibly easy to use from different environments like Python, R, Java, and even Bash. One of the best things about this is that you don’t need to install any special libraries (although they can be useful for a more native experience). All you have to do is send a GET or POST request and you’re good to go.</p>
+<div id="r" class="section level2">
+<h2>R</h2>
+<p>In the case of R, you’ll need to install the <code>httr</code> library to have a pleasant experience. Once you have <code>httr</code> installed, you can easily send API requests. The object returned by its functions contains a wealth of information, including the <code>status_code</code>, which indicates the status of the response. In most cases, receiving a 200 means everything is okay, but any other code might require further investigation. For a complete list of possible response codes, refer to: <a href="https://developer.mozilla.org/en-US/docs/Web/HTTP/Status" class="uri">https://developer.mozilla.org/en-US/docs/Web/HTTP/Status</a>.</p>
+<pre class="r"><code>result &lt;- httr::GET(&quot;http://127.0.0.1:8761/genes/symbols/KRAS&quot;)
+result$request</code></pre>
+<pre><code>## &lt;request&gt;
+## GET http://127.0.0.1:8761/genes/symbols/KRAS
+## Output: write_memory
+## Options:
+## * useragent: libcurl/7.81.0 r-curl/4.3.2 httr/1.4.2
+## * httpget: TRUE
+## Headers:
+## * Accept: application/json, text/xml, application/xml, */*</code></pre>
+<pre class="r"><code>result$status_code</code></pre>
+<pre><code>## [1] 200</code></pre>
+<pre class="r"><code>httr::content(result)</code></pre>
+<pre><code>## $ensembl_gene_id
+## [1] &quot;ENSG00000133703&quot;
+##
+## $hgnc_symbol
+## [1] &quot;KRAS&quot;
+##
+## $description
+## [1] &quot;KRAS proto-oncogene, GTPase [Source:HGNC Symbol;Acc:HGNC:6407]&quot;</code></pre>
+<p>Now it might be a good time to look into the logs:</p>
+<pre class="r"><code>cat(readLines(&quot;tmp/API_LOG.log&quot;), sep = &quot;\n&quot;)</code></pre>
+<pre><code>## Running plumber API at http://127.0.0.1:8761
+## Running swagger Docs at http://127.0.0.1:8761/__docs__/
+## INFO [2023-04-04 19:46:04] MachineId: MAIN_1, ReqId: 82f148ab-9c75-4467-8577-b8a9ac226f6c, REQUEST_METHOD: GET, PATH_INFO: /genes/symbols/KRAS, HTTP_USER_AGENT: libcurl/7.81.0 r-curl/4.3.2 httr/1.4.2, REMOTE_ADDR: 127.0.0.1
+## INFO [2023-04-04 19:46:04] MachineId: MAIN_1, ReqId: 82f148ab-9c75-4467-8577-b8a9ac226f6c, Key `KRAS` cache miss.
+## INFO [2023-04-04 19:46:05] MachineId: MAIN_1, ReqId: 82f148ab-9c75-4467-8577-b8a9ac226f6c, Key `KRAS` cached in redis</code></pre>
+<p>Two first lines are generated by <code>plumber</code> itself, they show on which port API is listening (first line), and on which the swagger UI is available (it’s worth to play with swagger to manually test/explore your API).</p>
+<p>All 3 following lines are related to the request made by R. The first line gives you some basic information about the request, e.g. that this is <code>GET</code> request to <code>/genes/symbols/KRAS</code> path. Later on it can be used to see how your API is utilized, which endpoints are used the most, etc.</p>
+<p>Second line tells you that this request was not cached. It might be useful to calculate <code>cache hit ratio</code> to make sure that your caching strategy is working as expected.</p>
+<p>Third entry might be useful to diagnose any problems with writing to <code>redis</code>. In this state it just tells you that everything is fine.</p>
+</div>
+<div id="bash" class="section level2">
+<h2>Bash</h2>
+<p>In bash, good old <code>curl</code> is your friend. To process the ouput which usually comes as json, you can use <code>jq</code> tool (<a href="https://stedolan.github.io/jq/" class="uri">https://stedolan.github.io/jq/</a>). <code>jq</code> requires some practice, like any other command line tool (<code>awk</code>, <code>sed</code>, <code>grep</code>, etc), but if you need to work in bash, <code>jq</code> might be way faster than running <code>python</code> or <code>R</code>.</p>
+<pre class="bash"><code>curl -s -X GET &quot;http://127.0.0.1:8761/genes/ensgs/ENSG00000133703&quot;</code></pre>
+<pre><code>## {&quot;ensembl_gene_id&quot;:&quot;ENSG00000133703&quot;,&quot;hgnc_symbol&quot;:&quot;KRAS&quot;,&quot;description&quot;:&quot;KRAS proto-oncogene, GTPase [Source:HGNC Symbol;Acc:HGNC:6407]&quot;}</code></pre>
+<pre class="bash"><code>curl -s -X GET &quot;http://127.0.0.1:8761/genes/symbols/BCAT1&quot;</code></pre>
+<pre><code>## {&quot;ensembl_gene_id&quot;:&quot;ENSG00000060982&quot;,&quot;hgnc_symbol&quot;:&quot;BCAT1&quot;,&quot;description&quot;:&quot;branched chain amino acid transaminase 1 [Source:HGNC Symbol;Acc:HGNC:976]&quot;}</code></pre>
+<pre class="bash"><code># Just symbol
+curl -s -X GET &quot;http://127.0.0.1:8761/genes/ensgs/ENSG00000133703&quot; | jq &#39;.hgnc_symbol&#39;</code></pre>
+<pre><code>## &quot;KRAS&quot;</code></pre>
+<pre class="bash"><code>curl -s -X GET &quot;http://127.0.0.1:8761/genes/ensgs/ENSG00000133703&quot; |
+  jq &#39;(.hgnc_symbol) + &quot; is a symbol for &quot; + (.ensembl_gene_id) + &quot; ensg&quot;&#39;</code></pre>
+<pre><code>## &quot;KRAS is a symbol for ENSG00000133703 ensg&quot;</code></pre>
+<pre class="bash"><code>curl -s -X GET &quot;http://127.0.0.1:8761/genes/symbols/KRAS&quot; | jq &#39;.description&#39;</code></pre>
+<pre><code>## &quot;KRAS proto-oncogene, GTPase [Source:HGNC Symbol;Acc:HGNC:6407]&quot;</code></pre>
+<p>Have I told you that I really like <code>awk</code> for processing log data? No? Here you have one-liner to calculate cache hit ratio (percentage of the API calls served from the cache).</p>
+<pre class="bash"><code>awk &#39;{if ($0 ~ /cache miss/) {++miss} else if($0 ~ /read from cache/) {++hit} }
+      END {print &quot;Cache hit ratio: &quot; hit/(miss+hit)}&#39; tmp/API_LOG.log</code></pre>
+<pre><code>## Cache hit ratio: 0,5</code></pre>
+</div>
+<div id="python" class="section level2">
+<h2>Python</h2>
+<p>No surprises in Python - using API is really simple. Just grab <code>requests</code>
+module and you are ready to go.</p>
+<pre class="python"><code>import requests
+
+x = requests.get(&#39;http://127.0.0.1:8761/genes/ensgs/ENSG00000133703&#39;)
+x.json()</code></pre>
+<pre><code>## {&#39;ensembl_gene_id&#39;: &#39;ENSG00000133703&#39;, &#39;hgnc_symbol&#39;: &#39;KRAS&#39;, &#39;description&#39;: &#39;KRAS proto-oncogene, GTPase [Source:HGNC Symbol;Acc:HGNC:6407]&#39;}</code></pre>
+</div>
+</div>
+<div id="creating-r-package-for-interacting-with-an-api" class="section level1">
+<h1>Creating R package for interacting with an API</h1>
+<p>Okay, now that we have our API up and running and can communicate with it using tools like curl, it’s functional. But we can do better than that. We can wrap all of our API endpoints (the URL paths that we use to send the requests) in R functions, and bundle them together as a package.</p>
+<p>An example of how to do this can be found in the following resource: <a href="https://httr.r-lib.org/articles/api-packages.html" class="uri">https://httr.r-lib.org/articles/api-packages.html</a>. However, I’ll also provide a simple example for our API.</p>
+<pre class="r"><code>library(httr)
+
+# Print API object
+print.gene_api &lt;- function(x, ...) {
+  cat(&quot;&lt;GENE_API &quot;, x$path, &quot;&gt;\n&quot;, sep = &quot;&quot;)
+  str(x$content)
+  invisible(x)
+}
+
+# Workhorse function - it handles basic stuff like errors (status code other than 200),
+# and parsing the output.
+gene_api &lt;- function(path) {
+
+  gene_api_path &lt;- Sys.getenv(&quot;GENE_API_PATH&quot;, &quot;http://127.0.0.1:8761&quot;)
+  url &lt;- modify_url(gene_api_path, path = path)
+  resp &lt;- GET(url)
+  if (http_type(resp) != &quot;application/json&quot;) {
+    # TODO: what might be the reason? Maybe a better information for the user can
+    # be provided?
+    stop(&quot;API did not return json&quot;, call. = FALSE)
+  }
+
+  if (status_code(resp) != 200) {
+    # TODO: serve other statuses that make sense (e.g. 201, 402 or 418)
+    stop(
+      sprintf(
+        &quot;Gene API request failed [%s]\n%s\n&lt;%s&gt;&quot;,
+        status_code(resp),
+        parsed$message,
+        parsed$documentation_url
+      ),
+      call. = FALSE
+    )
+  }
+
+  parsed &lt;- jsonlite::fromJSON(content(resp, &quot;text&quot;, encoding = &quot;UTF-8&quot;), simplifyVector = FALSE)
+  structure(
+    list(
+      content = parsed,
+      path = path,
+      response = resp
+    ),
+    class = &quot;gene_api&quot;
+  )
+}
+
+# Raw usage
+gene_api(&quot;genes/symbols/KRAS&quot;)</code></pre>
+<pre><code>## &lt;GENE_API genes/symbols/KRAS&gt;
+## List of 3
+##  $ ensembl_gene_id: chr &quot;ENSG00000133703&quot;
+##  $ hgnc_symbol    : chr &quot;KRAS&quot;
+##  $ description    : chr &quot;KRAS proto-oncogene, GTPase [Source:HGNC Symbol;Acc:HGNC:6407]&quot;</code></pre>
+<pre class="r"><code>gene_api(&quot;genes/ensgs/ENSG00000133703&quot;)</code></pre>
+<pre><code>## &lt;GENE_API genes/ensgs/ENSG00000133703&gt;
+## List of 3
+##  $ ensembl_gene_id: chr &quot;ENSG00000133703&quot;
+##  $ hgnc_symbol    : chr &quot;KRAS&quot;
+##  $ description    : chr &quot;KRAS proto-oncogene, GTPase [Source:HGNC Symbol;Acc:HGNC:6407]&quot;</code></pre>
+<pre class="r"><code># Funcion wrappers for the most important API endpoints
+ga_symbol_info &lt;- function(symbol) {
+  checkmate::assert_character(symbol, min.chars = 1, any.missing = FALSE, len = 1)
+  gene_api(glue::glue(&quot;genes/symbols/{symbol}&quot;))$content
+}
+
+ga_ensg_info &lt;- function(ensg) {
+  checkmate::assert_character(ensg, min.chars = 1, any.missing = FALSE, len = 1)
+  gene_api(glue::glue(&quot;genes/ensgs/{ensg}&quot;))$content
+}
+
+ga_symbol_info(&quot;KRAS&quot;)</code></pre>
+<pre><code>## $ensembl_gene_id
+## [1] &quot;ENSG00000133703&quot;
+##
+## $hgnc_symbol
+## [1] &quot;KRAS&quot;
+##
+## $description
+## [1] &quot;KRAS proto-oncogene, GTPase [Source:HGNC Symbol;Acc:HGNC:6407]&quot;</code></pre>
+<pre class="r"><code>ga_ensg_info(&quot;ENSG00000133703&quot;)</code></pre>
+<pre><code>## $ensembl_gene_id
+## [1] &quot;ENSG00000133703&quot;
+##
+## $hgnc_symbol
+## [1] &quot;KRAS&quot;
+##
+## $description
+## [1] &quot;KRAS proto-oncogene, GTPase [Source:HGNC Symbol;Acc:HGNC:6407]&quot;</code></pre>
+<p>Note that in the code above, I use <code>checkmate</code> to verify the parameters passed to the functions. It’s very handy, as it checks if the required conditions are met and provides informative messages to users if they are not.</p>
+</div>
+<div id="apiv2---authentication-authorization-cookies-tokens" class="section level1">
+<h1>APIv2 - authentication, authorization, cookies, tokens…</h1>
+<p>By default, anyone with network access to an API can send requests against it. However, most APIs need to be protected from unauthorized users. Securing an API is a broad topic, and there are various ways to do it, so it is essential to spend some time thinking about it. After all, the last thing anyone wants is to make their API a source of company data leaks. One may need to study things like AWS Cognito, API Gateway, OAuth2, OpenID, etc.</p>
+<p>For learning purposes, I created a simple example that uses cookie and access token-based authentication. It’s straightforward: to access the API, a user needs to make a call to a special endpoint and provide a unique key generated for each user in advance. (There might be a special process for obtaining those keys.)</p>
+<ul>
+<li><code>/session_token</code> - by calling this endpoint, a user gets a special token
+that will be valid for some time (e.g. 15 minutes), and it has to be added to each
+subsequent API request.</li>
+<li><code>/session_cookie</code> - this endpoint is very similar to the previous one, but the token is encrypted in a cookie.
+The user must add the cookie to each request. It is also valid for a specified period.</li>
+</ul>
+<p>To encrypt the cookie, I create a key that will be used to secure the content sent to the user. While in this example, the cookie stores credentials, it can store other information as well. Encrypting the cookie ensures that users won’t be able to access its content, which can be helpful in some cases.</p>
+<p>Then I need to generate some API keys for the users. In my examples they are just hashes obtained from
+<code>1,2,3,4,5</code>. However, this is just for illustration purposes.</p>
+<pre class="r"><code>library(dplyr)
+library(DBI)
+library(RSQLite)
+
+pswd_file &lt;- &quot;tmp/cookie_pass_gene_api&quot;
+cat(plumber::random_cookie_key(), file = pswd_file)
+Sys.chmod(pswd_file, mode = &quot;0600&quot;)
+
+db_file &lt;- &quot;tmp/user-info.sqlite&quot;
+if(file.exists(db_file)) unlink(db_file)
+db &lt;- dbConnect(RSQLite::SQLite(), &quot;tmp/user-info.sqlite&quot;)
+
+# This will be the table for storing the API keys
+dbWriteTable(conn = db, name = &quot;apikeys&quot;,
+  data.frame(
+    user    = paste0(&quot;user&quot;, 1:5),
+    api_key = purrr::map_chr(1:5, digest::digest)
+  ), overwrite = TRUE
+)
+
+# Show the content of the table
+# as you can see &quot;4b5630ee914e848e8d07221556b0a2fb&quot;
+# looks way more professional than &quot;1&quot;
+tbl(db, &quot;apikeys&quot;)</code></pre>
+<pre><code>## # Source:   table&lt;apikeys&gt; [5 x 2]
+## # Database: sqlite 3.40.1 [tmp/user-info.sqlite]
+##   user  api_key
+##   &lt;chr&gt; &lt;chr&gt;
+## 1 user1 4b5630ee914e848e8d07221556b0a2fb
+## 2 user2 c01f179e4b57ab8bd9de309e6d576c48
+## 3 user3 11946e7a3ed5e1776e81c0f0ecd383d0
+## 4 user4 234a2a5581872457b9fe1187d1616b13
+## 5 user5 dd4ad37ee474732a009111e3456e7ed7</code></pre>
+<pre class="r"><code>dbDisconnect(db)
+
+write_chunk_file(&quot;api_v2&quot;, &quot;tmp/api_v2.R&quot;)</code></pre>
+<p>Here there’s the code for the API:</p>
+<pre class="r"><code>library(plumber)
+library(dplyr)
+library(dbplyr)
+library(pool)
+
+# https://github.com/rstudio/pool
+# it&#39;s really cool package
+pool &lt;- dbPool(
+  RSQLite::SQLite(),
+  dbname = &quot;user-info.sqlite&quot;,
+  idleTimeout = 10,
+  minSize = 0,
+  onCreate = function(con) {
+    logger::log_info(&quot;Database connection created&quot;)
+    con
+  }
+)
+
+# TODO: there&#39;s nearly no logging - but it would be
+# worthwhile to add some
+
+# Redis stores the tokens for specified period of time
+# if a token is not present, then it means that the
+# is not authorized anymore to perform any actions.
+# Note that if you use any database to store the credentials,
+# you have to make it really secure!
+redis &lt;- redux::hiredis()
+
+# This function checks if the user_key exists
+# in the database. If so, it return a token
+# that either be send as a response or store in a cookie.
+# Redis takes care of expiring the token after specified time.
+# In the end the verification is very easy - if the token exists
+# in the Redis, then the user is authorized to perform
+# specific action.
+authorize &lt;- function(req, valid_time = 10L) {
+  if(!&quot;authorization&quot; %in% names(req$HEADERS)) {
+    res &lt;- list(
+      status_code = 401, msg = &quot;api not provided&quot;
+    )
+    return(res)
+  }
+
+  authorization &lt;- strsplit(req$HEADERS[[&quot;authorization&quot;]], split = &quot; &quot;)[[1]]
+  user_key &lt;- authorization[[2]]
+
+  key &lt;- tbl(pool, &quot;apikeys&quot;) %&gt;% filter(api_key == user_key) %&gt;% collect()
+  if(nrow(key) == 0) {
+    list(
+      status_code = 401
+    )
+  } else {
+    token &lt;- digest::digest(paste0(key$api_key, uuid::UUIDgenerate()))
+
+    token_valid_date &lt;- Sys.time() + valid_time
+
+    # TODO: what should be done when redis is not available?
+    redis$SET(token, key$user, EX = valid_time)
+    list(
+      token = token,
+      status_code = 200,
+      token_valid_date = token_valid_date
+    )
+  }
+}
+
+
+#* @get /session_token
+#* @serializer unboxedJSON
+function(req, res) {
+
+  authorization_status &lt;- authorize(req)
+
+  if(authorization_status$status_code != 200) {
+    res$status &lt;- authorization_status$status_code
+    return(list(error = paste(&quot;Access denied!&quot;, authorization_status$msg)))
+  }
+
+  authorization_status
+}
+
+#* @get /session_cookie
+#* @serializer unboxedJSON
+function(req, res) {
+
+  authorization_status &lt;- authorize(req)
+
+  if(authorization_status$status_code != 200) {
+    res$status &lt;- authorization_status$status_code
+    return(list(error = paste(&quot;Access denied!&quot;, authorization_status$msg)))
+  }
+
+  # Content of the encrypted cookies can be set using
+  # req$session${COOKIE_NAME}
+  req$session$token &lt;- authorization_status$token
+
+  # authorization_status will be returned, but it should not
+  # contain the token in an open text
+  authorization_status$token &lt;- NULL
+  authorization_status$info  &lt;- &quot;authorization cookie retrived successfully&quot;
+
+  names(authorization_status) &lt;- dplyr::case_when(
+    names(authorization_status) == &quot;token_valid_date&quot; ~ &quot;cookie_valid_date&quot;,
+    TRUE ~ names(authorization_status)
+  )
+
+  authorization_status
+
+}
+
+#* @filter authorization
+function(req, res) {
+
+  # this filter is called for other endpoints than the 4 specified below:
+  ignored_paths &lt;- c(&quot;/session_cookie&quot;, &quot;/session_token&quot;, &quot;/__docs__&quot;, &quot;/openapi.json&quot;)
+  if(!any(stringr::str_detect(req$PATH_INFO, ignored_paths))) {
+
+
+    token &lt;- if(!is.null(req$session$token)) {
+      # read from cookie
+      req$session$token
+    } else {
+
+      if (!&quot;authorization&quot; %in% names(req$HEADERS)) {
+        # if neither token nor cookie is provided
+        # then it return immediately
+        res$status &lt;- 401
+        return(&quot;No cookie or token provided!&quot;)
+      }
+
+      strsplit(req$HEADERS[[&quot;authorization&quot;]], split = &quot; &quot;)[[1]][[2]]
+    }
+
+    # if user token does not exists in redis, it might mean that
+    # it is expired.
+    user &lt;- redis$GET(token)
+
+    if(is.null(user)) {
+      res$status &lt;- 401
+      return(&quot;Cookie/token expired!&quot;)
+    }
+
+    req$user &lt;- user
+  }
+
+  plumber::forward()
+}
+
+#* @get /session_counter
+#* @serializer unboxedJSON
+function(req, res) {
+  # Simple endpoint that uses user information to store the
+  # total number of api calls made against it.
+  redis$INCR(req$user)
+  value &lt;- redis$GET(req$user)
+  logger::log_info(&quot;[session_counter] {req$user}, value: {value}&quot;)
+  list(&quot;total_number_of_api_calls&quot; = value, user = req$user)
+}</code></pre>
+<p>Now let’s write some code to run the API. Note that to use a secure cookie you need to
+make a call to <code>pr_cookie</code>.</p>
+<pre class="bash"><code>cat &lt;&lt; EOT &gt; run_api_v2.R
+library(plumber)
+library(optparse)
+library(uuid)
+library(logger)
+
+MACHINE_ID &lt;- &quot;MAIN_1&quot;
+PORT_NUMBER &lt;- 8762
+
+log_level(logger::TRACE)
+
+pr(&quot;tmp/api_v2.R&quot;) %&gt;%
+  pr_cookie(readLines(&quot;tmp/cookie_pass_gene_api&quot;, warn = FALSE), &quot;token&quot;) %&gt;%
+  pr_run(port = PORT_NUMBER)
+EOT
+
+Rscript run_api_v2.R &gt; tmp/API_LOG_v2.log 2&gt;&amp;1 &amp;
+echo $! &gt; tmp/API_V2_PID
+disown
+</code></pre>
+<pre class="r"><code>wait_for_api(&quot;tmp/API_LOG_v2.log&quot;)</code></pre>
+<pre class="bash"><code>curl -X GET &quot;http://127.0.0.1:8762/session_cookie&quot; --silent</code></pre>
+<pre><code>## {&quot;error&quot;:&quot;Access denied! api not provided&quot;}</code></pre>
+<pre class="bash"><code>curl -X GET &quot;http://127.0.0.1:8762/session_counter&quot; --silent</code></pre>
+<pre><code>## [&quot;No cookie or token provided!&quot;]</code></pre>
+<pre class="bash"><code># Set cookie
+curl -X GET &quot;http://127.0.0.1:8762/session_cookie&quot; \
+  -H &quot;Authorization: Bearer 4b5630ee914e848e8d07221556b0a2fb&quot; \
+  -c tmp/cookie_auth.txt --silent</code></pre>
+<pre><code>## {&quot;status_code&quot;:200,&quot;cookie_valid_date&quot;:&quot;2023-04-04 19:46:21&quot;,&quot;info&quot;:&quot;authorization cookie retrived successfully&quot;}</code></pre>
+<pre class="bash"><code># Use cookie in curl
+curl -X GET &quot;http://127.0.0.1:8762/session_counter&quot; --cookie tmp/cookie_auth.txt --silent
+curl -X GET &quot;http://127.0.0.1:8762/session_counter&quot; --cookie tmp/cookie_auth.txt --silent</code></pre>
+<pre><code>## {&quot;total_number_of_api_calls&quot;:&quot;1&quot;,&quot;user&quot;:&quot;user1&quot;}{&quot;total_number_of_api_calls&quot;:&quot;2&quot;,&quot;user&quot;:&quot;user1&quot;}</code></pre>
+<p>Now let’s wait 11 seconds to make sure that token stored in cookie expires.</p>
+<pre class="bash"><code>sleep 11
+curl -X GET &quot;http://127.0.0.1:8762/session_counter&quot; --cookie tmp/cookie_auth.txt --silent</code></pre>
+<pre><code>## [&quot;Cookie/token expired!&quot;]</code></pre>
+<p>To renew the token I need to call <code>/session_token</code> once again. In practice it is usually
+a little bit more complicated, because there might be a second <code>renew token</code> send with
+<code>access token</code> that does the renewal automatically.</p>
+<pre class="bash"><code>curl -X GET &quot;http://127.0.0.1:8762/session_token&quot; \
+  -H &quot;Authorization: Bearer 4b5630ee914e848e8d07221556b0a2fb&quot; \
+  -c tmp/cookie_auth.txt --silent</code></pre>
+<pre><code>## {&quot;token&quot;:&quot;9ec25c5fe99193b8a168ed66baa5f4fc&quot;,&quot;status_code&quot;:200,&quot;token_valid_date&quot;:&quot;2023-04-04 19:46:33&quot;}</code></pre>
+<p>Now, short example with the <code>/session_token</code> endpoint:</p>
+<pre class="bash"><code># API Token
+curl -X GET &quot;http://127.0.0.1:8762/session_token&quot; -H &quot;Authorization: Bearer 4b5630ee914e848e8d07221556b0a2fb&quot; --silent</code></pre>
+<pre><code>## {&quot;token&quot;:&quot;b4f3df37d8d725b1b8ba60073b09ed69&quot;,&quot;status_code&quot;:200,&quot;token_valid_date&quot;:&quot;2023-04-04 19:46:33&quot;}</code></pre>
+<p>To get <code>API</code> you can use <code>jq</code> as shown in the example below:</p>
+<pre class="bash"><code>API_TOKEN=$(curl -X GET &quot;http://127.0.0.1:8762/session_token&quot; -H &quot;Authorization: Bearer 4b5630ee914e848e8d07221556b0a2fb&quot; --silent | jq -r .token)
+echo &quot;\n$API_TOKEN\n&quot;
+curl -X GET &quot;http://127.0.0.1:8762/session_counter&quot; -H &quot;Authorization: Bearer $API_TOKEN&quot; --silent</code></pre>
+<pre><code>## \n5893f0ff3990c6cf43b21ceb32b2309c\n
+## {&quot;total_number_of_api_calls&quot;:&quot;3&quot;,&quot;user&quot;:&quot;user1&quot;}</code></pre>
+</div>
+<div id="apiv3---api-gateway" class="section level1">
+<h1>APIv3 - API Gateway</h1>
+<p>In practice, the probability that you will need to implement your own authorization code is quite low, especially in a cloud environment. Most likely, your API will be hidden behind what is called an API Gateway - a single entry point for different APIs that performs routing, rate limiting, authentication, and authorization.</p>
+<p>With an API Gateway, your code will be similar to the first version of the API. However, make sure to properly configure access controls. For example, your API servers should be protected with either a Network Access Control List (NACL) or security groups (speaking in AWS terminology), so that all external and direct accesses are prohibited.</p>
+<p>Some useful links for further study:
+- <a href="https://tutorialsdojo.com/security-group-vs-nacl/" class="uri">https://tutorialsdojo.com/security-group-vs-nacl/</a> NACL vs secruity group.
+- <a href="https://auth0.com/docs/get-started/identity-fundamentals/authentication-and-authorization" class="uri">https://auth0.com/docs/get-started/identity-fundamentals/authentication-and-authorization</a> - Authentication vs. Authorization - those are two different things!
+- <a href="https://microservices.io/patterns/apigateway.html" class="uri">https://microservices.io/patterns/apigateway.html</a>, <a href="https://www.redhat.com/en/topics/api/what-does-an-api-gateway-do" class="uri">https://www.redhat.com/en/topics/api/what-does-an-api-gateway-do</a> - API Gateway.</p>
+</div>
+<div id="post-and-get" class="section level1">
+<h1>POST and GET</h1>
+<p>In the last part of this post I will show you how to write data using an API created in <code>plumber</code>.</p>
+<pre class="r"><code>write_chunk_file(&quot;api_post&quot;, &quot;tmp/plumber_post.R&quot;)</code></pre>
+<pre class="r"><code>library(plumber)
+library(dplyr)
+library(dbplyr)
+library(pool)
+database_path &lt;- tempfile()
+
+# Remove old file if exists to make sure that we have a clean start.
+# In production YOU DON&quot;T WANT TO DO THIS!
+if(file.exists(database_path)) unlink(database_path)
+
+pool &lt;- dbPool(
+  RSQLite::SQLite(),
+  dbname = database_path,
+  idleTimeout = 10,
+  minSize = 0,
+  onCreate = function(con) {
+    logger::log_info(&quot;Database connection created&quot;)
+    con
+  }
+)
+
+
+# Here I create a simple schema for storing the data.
+# One table with experiment_id and experiment_name
+# and a second table with some data related to this experiment
+dbExecute(pool, &quot;CREATE TABLE IF NOT EXISTS experiments (
+  experiment_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  experiment_name VARCHAR NOT NULL)
+&quot;)
+
+dbExecute(pool, &quot;CREATE TABLE IF NOT EXISTS genes_expression (
+  experiment_id INTEGER NOT NULL,
+  sample_id INTEGER NOT NULL,
+  ensg VARCHAR NOT NULL,
+  tpm REAL NOT NULL,
+  FOREIGN KEY(experiment_id) REFERENCES Artists(experiment_id)
+)
+&quot;)
+
+if(nrow(tbl(pool, &quot;experiments&quot;) %&gt;% filter(experiment_id == 1) %&gt;% collect()) == 0) {
+
+  # Here I add some data to the database
+  experiment_name &lt;- &quot;my_first_experiment&quot;
+
+  DBI::dbExecute(
+    pool,
+    glue::glue_sql(&quot;INSERT INTO experiments (experiment_name) VALUES({experiment_name})&quot;, .con = pool)
+  )
+
+  items &lt;- c(
+    &quot;INSERT INTO genes_expression (experiment_id, sample_id, ensg, tpm) VALUES (1, 1, &#39;ENSG00000133703&#39;, 20.0)&quot;,
+    &quot;INSERT INTO genes_expression (experiment_id, sample_id, ensg, tpm) VALUES (1, 2, &#39;ENSG00000133703&#39;, 11.0)&quot;,
+    &quot;INSERT INTO genes_expression (experiment_id, sample_id, ensg, tpm) VALUES (1, 3, &#39;ENSG00000133703&#39;, 45.0)&quot;,
+    &quot;INSERT INTO genes_expression (experiment_id, sample_id, ensg, tpm) VALUES (1, 1, &#39;ENSG00000268173&#39;, 137.2)&quot;,
+    &quot;INSERT INTO genes_expression (experiment_id, sample_id, ensg, tpm) VALUES (1, 2, &#39;ENSG00000268173&#39;, 431.1)&quot;,
+    &quot;INSERT INTO genes_expression (experiment_id, sample_id, ensg, tpm) VALUES (1, 3, &#39;ENSG00000268173&#39;, 19.9)&quot;
+  )
+
+  purrr::map(items, function(x) DBI::dbExecute(pool, x))
+
+}
+
+#* This endpoint reads all genes_expression data associated with an experiment
+#* @get /experiments/&lt;id&gt;/genes_expression
+#* @serializer unboxedJSON
+function(req, res, id) {
+  result &lt;- tbl(pool, &quot;experiments&quot;) %&gt;% filter(experiment_id == id) %&gt;% collect()
+  expressions &lt;- tbl(pool, &quot;genes_expression&quot;)
+
+  if(!is.null(req$args$ensg)) {
+    ensgs &lt;- req$args$ensg
+    expressions &lt;- expressions %&gt;% dplyr::filter(ensg %in% ensgs)
+  }
+  expressions &lt;- expressions %&gt;% select(sample_id, ensg, tpm) %&gt;% collect()
+  list(experiment = result, expressions = expressions)
+}
+
+#* Read experiment_name by experiment_id
+#* @get /experiments/&lt;id&gt;
+#* @serializer unboxedJSON
+function(req, res, id) {
+  tbl(pool, &quot;experiments&quot;) %&gt;% filter(experiment_id == id) %&gt;% collect() %&gt;% as.list
+}
+
+#* The most important part of this API - it writes the data to the database
+#* @post /experiments
+#* @serializer unboxedJSON
+function(req, res) {
+
+  # Data is sent in the request body,
+  # the next line excondes it to R list from raw bytes
+  data &lt;- jsonlite::fromJSON(rawToChar(req$bodyRaw))
+
+  # If an experiment with the same name already exists, returns appropriate response
+  experiment_name_ &lt;- data$experiment
+  experiment_exists &lt;- nrow(tbl(pool, &quot;experiments&quot;) %&gt;% dplyr::filter(experiment_name == experiment_name_) %&gt;% collect()) &gt; 0
+  if(experiment_exists) {
+    res$status &lt;- 409
+    return(paste(data$experiment, &quot;already exists in the database!&quot;))
+  }
+
+  # TODO: validation of the input - is everything present?
+
+  # TODO: Handle errors in the transaction.
+  # TODO: different way of extracting last added id
+  # Btw - transaction is a very important concept in DB world
+  # here&#39;s some starting links if you don&#39;t know what it mean
+  # https://www.sqlite.org/transactional.html
+  # https://en.wikipedia.org/wiki/Database_transaction
+  experiment_id &lt;- pool::poolWithTransaction(pool, function(conn){
+    DBI::dbExecute(conn, glue::glue_sql(&quot;INSERT INTO experiments(experiment_name) VALUES({data$experiment})&quot;, .con = conn))
+
+    # TODO: better way to get the id of the just added experiment_name
+    experiment_id &lt;-
+      DBI::dbGetQuery(
+        conn,
+        glue::glue_sql(
+          .con = conn,
+          &quot;SELECT experiment_id FROM experiments WHERE experiment_name = {data$experiment}&quot;
+        )
+      )$experiment_id
+
+    # Creating INSERT statement, note that I am using glue_sql for proper escaping
+    # if you don&#39;t know why you need to escape your sql queries read about SQL injection
+    data$expressions$experiment_id &lt;- experiment_id
+    insert_sql &lt;- paste(glue::glue_sql(
+      .con = conn,
+      &quot;({experiment_id},{sample_id},{ensg},{tpm})&quot;,
+      .envir = data$expressions
+    ), collapse = &quot;, &quot;)
+   insert_sql &lt;- paste(&quot;INSERT INTO genes_expression(experiment_id, sample_id, ensg, tpm) VALUES&quot;, insert_sql)
+   DBI::dbExecute(conn, insert_sql)
+   experiment_id
+  })
+
+  list(experiment_id = experiment_id)
+}</code></pre>
+<p>As usual - some code for running the API in background:</p>
+<pre class="bash"><code>cat &lt;&lt; EOT &gt; tmp/run_api_post.R
+library(plumber)
+library(optparse)
+library(uuid)
+library(logger)
+
+MACHINE_ID &lt;- &quot;MAIN_1&quot;
+PORT_NUMBER &lt;- 8113
+
+log_level(logger::TRACE)
+
+plumb(file=&#39;tmp/plumber_post.R&#39;) %&gt;%
+  pr_run(port = PORT_NUMBER)
+EOT
+
+Rscript tmp/run_api_post.R &gt; tmp/POST_API_LOG.log 2&gt;&amp;1 &amp;
+echo $! &gt; tmp/POST_API_PID
+disown
+</code></pre>
+<pre class="r"><code>wait_for_api(&quot;tmp/POST_API_LOG.log&quot;)</code></pre>
+<pre class="bash"><code>curl -X GET &quot;http://127.0.0.1:8113/experiments/1&quot; -H &quot;accept: application/json&quot; --silent</code></pre>
+<pre><code>## {&quot;experiment_id&quot;:1,&quot;experiment_name&quot;:&quot;my_first_experiment&quot;}</code></pre>
+<p><code>/genes_expression</code> allows to filter by specific <code>ENSG</code>. It can be provided using a query string:</p>
+<pre class="bash"><code>curl -X GET &quot;http://127.0.0.1:8113/experiments/1/genes_expression?ensg=ENSG00000133703&quot; -H &quot;accept: application/json&quot; --silent</code></pre>
+<pre><code>## {&quot;experiment&quot;:[{&quot;experiment_id&quot;:1,&quot;experiment_name&quot;:&quot;my_first_experiment&quot;}],&quot;expressions&quot;:[{&quot;sample_id&quot;:1,&quot;ensg&quot;:&quot;ENSG00000133703&quot;,&quot;tpm&quot;:20},{&quot;sample_id&quot;:2,&quot;ensg&quot;:&quot;ENSG00000133703&quot;,&quot;tpm&quot;:11},{&quot;sample_id&quot;:3,&quot;ensg&quot;:&quot;ENSG00000133703&quot;,&quot;tpm&quot;:45}]}</code></pre>
+<p>For sending a vector, you can use the same argument many times as show below:</p>
+<pre class="bash"><code>curl -X GET &quot;http://127.0.0.1:8113/experiments/1/genes_expression?ensg=ENSG00000133703&amp;ensg=ENSG00000268173&quot; -H &quot;accept: application/json&quot; --silent</code></pre>
+<pre><code>## {&quot;experiment&quot;:[{&quot;experiment_id&quot;:1,&quot;experiment_name&quot;:&quot;my_first_experiment&quot;}],&quot;expressions&quot;:[{&quot;sample_id&quot;:1,&quot;ensg&quot;:&quot;ENSG00000133703&quot;,&quot;tpm&quot;:20},{&quot;sample_id&quot;:2,&quot;ensg&quot;:&quot;ENSG00000133703&quot;,&quot;tpm&quot;:11},{&quot;sample_id&quot;:3,&quot;ensg&quot;:&quot;ENSG00000133703&quot;,&quot;tpm&quot;:45},{&quot;sample_id&quot;:1,&quot;ensg&quot;:&quot;ENSG00000268173&quot;,&quot;tpm&quot;:137.2},{&quot;sample_id&quot;:2,&quot;ensg&quot;:&quot;ENSG00000268173&quot;,&quot;tpm&quot;:431.1},{&quot;sample_id&quot;:3,&quot;ensg&quot;:&quot;ENSG00000268173&quot;,&quot;tpm&quot;:19.9}]}</code></pre>
+<p>Now, let’s prepare a <code>json</code> to be added to the database using a <code>POST</code> request.</p>
+<pre class="r"><code>input_to_api &lt;- list(
+  experiment = &quot;my_second_experiment&quot;,
+  expressions = tibble(sample_id = 1:4, ensg = &quot;ENSG00000133703&quot;, tpm = c(52.6,14.1,146.5,2000.1))
+)
+
+jsonlite::toJSON(input_to_api, auto_unbox = TRUE, pretty = TRUE)</code></pre>
+<pre><code>## {
+##   &quot;experiment&quot;: &quot;my_second_experiment&quot;,
+##   &quot;expressions&quot;: [
+##     {
+##       &quot;sample_id&quot;: 1,
+##       &quot;ensg&quot;: &quot;ENSG00000133703&quot;,
+##       &quot;tpm&quot;: 52.6
+##     },
+##     {
+##       &quot;sample_id&quot;: 2,
+##       &quot;ensg&quot;: &quot;ENSG00000133703&quot;,
+##       &quot;tpm&quot;: 14.1
+##     },
+##     {
+##       &quot;sample_id&quot;: 3,
+##       &quot;ensg&quot;: &quot;ENSG00000133703&quot;,
+##       &quot;tpm&quot;: 146.5
+##     },
+##     {
+##       &quot;sample_id&quot;: 4,
+##       &quot;ensg&quot;: &quot;ENSG00000133703&quot;,
+##       &quot;tpm&quot;: 2000.1
+##     }
+##   ]
+## }</code></pre>
+<p>And in the last step, the request is sent with the <code>json</code> containing all the required
+information.</p>
+<pre class="bash"><code>curl -X POST &quot;http://127.0.0.1:8113/experiments&quot; --silent --data &#39;
+{
+  &quot;experiment&quot;: &quot;my_second_experiment&quot;,
+  &quot;expressions&quot;: [
+    {
+      &quot;sample_id&quot;: 1,
+      &quot;ensg&quot;: &quot;ENSG00000133703&quot;,
+      &quot;tpm&quot;: 52.6
+    },
+    {
+      &quot;sample_id&quot;: 2,
+      &quot;ensg&quot;: &quot;ENSG00000133703&quot;,
+      &quot;tpm&quot;: 14.1
+    },
+    {
+      &quot;sample_id&quot;: 3,
+      &quot;ensg&quot;: &quot;ENSG00000133703&quot;,
+      &quot;tpm&quot;: 146.5
+    },
+    {
+      &quot;sample_id&quot;: 4,
+      &quot;ensg&quot;: &quot;ENSG00000133703&quot;,
+      &quot;tpm&quot;: 2000.1
+    }
+  ]
+}
+&#39;
+</code></pre>
+<pre><code>## {&quot;experiment_id&quot;:2}</code></pre>
+<p>And reading the output:</p>
+<pre class="bash"><code>curl -X GET &quot;http://127.0.0.1:8113/experiments/2/genes_expression&quot; -H &quot;accept: application/json&quot; --silent</code></pre>
+<pre><code>## {&quot;experiment&quot;:[{&quot;experiment_id&quot;:2,&quot;experiment_name&quot;:&quot;my_second_experiment&quot;}],&quot;expressions&quot;:[{&quot;sample_id&quot;:1,&quot;ensg&quot;:&quot;ENSG00000133703&quot;,&quot;tpm&quot;:20},{&quot;sample_id&quot;:2,&quot;ensg&quot;:&quot;ENSG00000133703&quot;,&quot;tpm&quot;:11},{&quot;sample_id&quot;:3,&quot;ensg&quot;:&quot;ENSG00000133703&quot;,&quot;tpm&quot;:45},{&quot;sample_id&quot;:1,&quot;ensg&quot;:&quot;ENSG00000268173&quot;,&quot;tpm&quot;:137.2},{&quot;sample_id&quot;:2,&quot;ensg&quot;:&quot;ENSG00000268173&quot;,&quot;tpm&quot;:431.1},{&quot;sample_id&quot;:3,&quot;ensg&quot;:&quot;ENSG00000268173&quot;,&quot;tpm&quot;:19.9},{&quot;sample_id&quot;:1,&quot;ensg&quot;:&quot;ENSG00000133703&quot;,&quot;tpm&quot;:52.6},{&quot;sample_id&quot;:2,&quot;ensg&quot;:&quot;ENSG00000133703&quot;,&quot;tpm&quot;:14.1},{&quot;sample_id&quot;:3,&quot;ensg&quot;:&quot;ENSG00000133703&quot;,&quot;tpm&quot;:146.5},{&quot;sample_id&quot;:4,&quot;ensg&quot;:&quot;ENSG00000133703&quot;,&quot;tpm&quot;:2000.1}]}</code></pre>
+<p>One last thing, just for a pure joy of using bash <code>parallel</code> and some other console tools. The script below,
+runs <code>curl</code> 500 times on 8 workers and logs some performace information. Then I use some simple tools
+to perform basic analysis:</p>
+<pre class="bash"><code># https://stackoverflow.com/questions/18215389/how-do-i-measure-request-and-response-times-at-once-using-curl
+
+seq 500 | parallel --joblog tmp/joblog.txt -n0 -j8 &quot;curl \
+    -X GET &#39;http://127.0.0.1:8113/experiments/1/genes_expression?ensg=ENSG00000133703&#39; \
+    -H &#39;accept: application/json&#39; --silent \
+    -w &#39;%{time_connect} %{time_starttransfer} %{time_total}\n&#39; \
+    -o /dev/null&quot; &gt; tmp/all_times</code></pre>
+<p>Calculate mean connection time, time to first byte transferred and total time of for a request:</p>
+<pre class="bash"><code>LC_NUMERIC=C # for some reason Rstudio changes the numeric locale!
+awk &#39;{N+=1; CONNECT+=$1; TTFB+=$2; TOTAL+=$3} END {printf &quot;Connect: %.3gs TTFB: %.2gs TOTAL: %.3gs\n&quot;, CONNECT/N, TTFB/N, TOTAL/N}&#39; tmp/all_times</code></pre>
+<pre><code>## Connect: 0.00015s TTFB: 0.5s TOTAL: 0.504s</code></pre>
+<p>As a bonus - number of requests processed each second (to be precise I use number of requests started each second by <code>parallel</code>).
+As you can see, this API can handle <code>14-15req/sec</code>. Can you explain what each command in this bash pipeline does?</p>
+<pre class="bash"><code>LC_NUMERIC=C
+tail -n +2 tmp/joblog.txt | cut -f 3 | xargs printf &quot;%.0f\n&quot;|
+  sort | uniq -c | tr -s &quot; &quot; | cut -f2 -d &quot; &quot; | sort |
+  awk &#39;{a[i++]=$0} END {print (i%2==0)?(a[int(i/2)-1]+a[int(i/2)])/2:a[int(i/2)]}&#39;
+  </code></pre>
+<pre><code>## 16</code></pre>
+</div>
+<div id="clean-up" class="section level1">
+<h1>Clean-up</h1>
+<p>To keep the system clean, I kill all the processes started in the background. To do that I use
+the PID files created when they were started. Stopping <code>redis</code> is a little more complicated, because I need
+to extract its <code>process_id</code> from the <code>cli</code>.</p>
+<pre class="bash"><code># Kill R processes
+for f in tmp/*_PID; do echo $f &amp;&amp; kill -15 $(cat $f); done
+
+# Kill redis-server
+kill -15 $(redis-cli INFO | grep process_id | cut -d&quot;:&quot; -f2 | sed -e &quot;s/\r//g&quot;)
+
+rm -rf tmp</code></pre>
+<pre><code>## tmp/API_PID
+## tmp/API_V2_PID
+## tmp/POST_API_PID</code></pre>
+</div>
+<div id="summary" class="section level1">
+<h1>Summary</h1>
+<p>The topics covered in this post should be treated as a starting point for further study. Here’s a bunch of links that you might find useful:</p>
+<ul>
+<li><a href="https://posit.co/blog/plumber-v1-1-0/#parallel-exec" class="uri">https://posit.co/blog/plumber-v1-1-0/#parallel-exec</a> - <code>plumber</code> can use <code>async</code> workers. It might be an easy way to scale-up your API, but it might be not enough for heavy-workload environment.</li>
+<li><a href="https://blog.bytebytego.com/p/why-is-restful-api-so-popular" class="uri">https://blog.bytebytego.com/p/why-is-restful-api-so-popular</a> - some basic information about what RESTful API are popular.</li>
+<li><a href="https://blog.bytebytego.com/p/ep53-design-effective-and-safe-apis" class="uri">https://blog.bytebytego.com/p/ep53-design-effective-and-safe-apis</a> - this post contains a simple iconography showing some good practices in API design.</li>
+</ul>
+</div>
