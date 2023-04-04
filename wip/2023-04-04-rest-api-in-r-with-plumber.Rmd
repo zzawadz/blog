@@ -1,11 +1,22 @@
 ---
-title: "api"
-output: html_document
-date: "2023-03-24"
+title: REST API in R with plumber
+author: ~
+date: '2023-04-04'
+slug: rest-api-in-r-with-plumber
+tags:
+  - rpkg-plumber
+  - rpkg-redux
+  - rpkg-dbplyr
+  - rpkg-memoise
+  - curl
+  - API
+  - redis
+  - cache
 ---
 
+
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, message = FALSE)
 ```
 
 # API and R
@@ -256,7 +267,7 @@ wait_for_api("tmp/API_LOG.log")
 
 And now, API is ready to go.
 
-# Using API
+# Using an API
 
 APIs are great because they use the HTTP protocol, which makes them incredibly easy to use from different environments like Python, R, Java, and even Bash. One of the best things about this is that you don't need to install any special libraries (although they can be useful for a more native experience). All you have to do is send a GET or POST request and you're good to go.
 
@@ -298,7 +309,7 @@ curl -s -X GET "http://127.0.0.1:8761/genes/symbols/BCAT1"
 ```
 ```{bash}
 # Just symbol
-curl -s -X GET "http://127.0.0.1:8761/genes/ensg/ENSG00000133703" | jq '.hgnc_symbol'
+curl -s -X GET "http://127.0.0.1:8761/genes/ensgs/ENSG00000133703" | jq '.hgnc_symbol'
 ```
 ```{bash}
 curl -s -X GET "http://127.0.0.1:8761/genes/ensgs/ENSG00000133703" | 
@@ -567,7 +578,7 @@ function(req, res) {
 #* @filter authorization
 function(req, res) {
   
-  # this filter is called for other endpoints than the 3 specified below:
+  # this filter is called for other endpoints than the 4 specified below:
   ignored_paths <- c("/session_cookie", "/session_token", "/__docs__", "/openapi.json")
   if(!any(stringr::str_detect(req$PATH_INFO, ignored_paths))) {
   
@@ -665,21 +676,35 @@ curl -X GET "http://127.0.0.1:8762/session_counter" --cookie tmp/cookie_auth.txt
 curl -X GET "http://127.0.0.1:8762/session_counter" --cookie tmp/cookie_auth.txt --silent
 ```
 
+Now let's wait 11 seconds to make sure that token stored in cookie expires.
+
 ```{bash}
 sleep 11
 curl -X GET "http://127.0.0.1:8762/session_counter" --cookie tmp/cookie_auth.txt --silent
+```
 
+To renew the token I need to call `/session_token` once again. In practice it is usually
+a little bit more complicated, because there might be a second `renew token` send with
+`access token` that does the renewal automatically.
+
+```{bash}
 curl -X GET "http://127.0.0.1:8762/session_token" \
   -H "Authorization: Bearer 4b5630ee914e848e8d07221556b0a2fb" \
   -c tmp/cookie_auth.txt --silent
 ```
 
+Now, short example with the `/session_token` endpoint:
+
 ```{bash}
 # API Token
 curl -X GET "http://127.0.0.1:8762/session_token" -H "Authorization: Bearer 4b5630ee914e848e8d07221556b0a2fb" --silent
+```
 
+To get `API` you can use `jq` as shown in the example below:
+
+```{bash}
 API_TOKEN=$(curl -X GET "http://127.0.0.1:8762/session_token" -H "Authorization: Bearer 4b5630ee914e848e8d07221556b0a2fb" --silent | jq -r .token)
-echo $API_TOKEN
+echo "\n$API_TOKEN\n"
 curl -X GET "http://127.0.0.1:8762/session_counter" -H "Authorization: Bearer $API_TOKEN" --silent
 ```
 
@@ -695,6 +720,8 @@ Some useful links for further study:
 - https://microservices.io/patterns/apigateway.html, https://www.redhat.com/en/topics/api/what-does-an-api-gateway-do - API Gateway.
 
 # POST and GET
+
+In the last part of this post I will show you how to write data using an API created in `plumber`.
 
 ```{r}
 write_chunk_file("api_post", "tmp/plumber_post.R")
@@ -722,6 +749,10 @@ pool <- dbPool(
   }
 )
 
+
+# Here I create a simple schema for storing the data.
+# One table with experiment_id and experiment_name
+# and a second table with some data related to this experiment
 dbExecute(pool, "CREATE TABLE IF NOT EXISTS experiments (
   experiment_id INTEGER PRIMARY KEY AUTOINCREMENT,
   experiment_name VARCHAR NOT NULL)
@@ -738,6 +769,7 @@ dbExecute(pool, "CREATE TABLE IF NOT EXISTS genes_expression (
 
 if(nrow(tbl(pool, "experiments") %>% filter(experiment_id == 1) %>% collect()) == 0) {
   
+  # Here I add some data to the database
   experiment_name <- "my_first_experiment"
   
   DBI::dbExecute(
@@ -758,6 +790,7 @@ if(nrow(tbl(pool, "experiments") %>% filter(experiment_id == 1) %>% collect()) =
   
 }
 
+#* This endpoint reads all genes_expression data associated with an experiment
 #* @get /experiments/<id>/genes_expression
 #* @serializer unboxedJSON
 function(req, res, id) {
@@ -772,18 +805,23 @@ function(req, res, id) {
   list(experiment = result, expressions = expressions)
 }
 
+#* Read experiment_name by experiment_id
 #* @get /experiments/<id>
 #* @serializer unboxedJSON
 function(req, res, id) {
   tbl(pool, "experiments") %>% filter(experiment_id == id) %>% collect() %>% as.list
 }
 
-
+#* The most important part of this API - it writes the data to the database
 #* @post /experiments
 #* @serializer unboxedJSON
 function(req, res) {
   
+  # Data is sent in the request body,
+  # the next line excondes it to R list from raw bytes
   data <- jsonlite::fromJSON(rawToChar(req$bodyRaw))
+  
+  # If an experiment with the same name already exists, returns appropriate response
   experiment_name_ <- data$experiment
   experiment_exists <- nrow(tbl(pool, "experiments") %>% dplyr::filter(experiment_name == experiment_name_) %>% collect()) > 0
   if(experiment_exists) {
@@ -791,10 +829,18 @@ function(req, res) {
     return(paste(data$experiment, "already exists in the database!"))
   }
   
+  # TODO: validation of the input - is everything present?
+  
   # TODO: Handle errors in the transaction.
   # TODO: different way of extracting last added id
+  # Btw - transaction is a very important concept in DB world
+  # here's some starting links if you don't know what it mean
+  # https://www.sqlite.org/transactional.html
+  # https://en.wikipedia.org/wiki/Database_transaction
   experiment_id <- pool::poolWithTransaction(pool, function(conn){
     DBI::dbExecute(conn, glue::glue_sql("INSERT INTO experiments(experiment_name) VALUES({data$experiment})", .con = conn))
+    
+    # TODO: better way to get the id of the just added experiment_name
     experiment_id <-
       DBI::dbGetQuery(
         conn,
@@ -804,6 +850,8 @@ function(req, res) {
         )
       )$experiment_id
     
+    # Creating INSERT statement, note that I am using glue_sql for proper escaping
+    # if you don't know why you need to escape your sql queries read about SQL injection
     data$expressions$experiment_id <- experiment_id
     insert_sql <- paste(glue::glue_sql(
       .con = conn,
@@ -818,6 +866,8 @@ function(req, res) {
   list(experiment_id = experiment_id)
 }
 ```
+
+As usual - some code for running the API in background:
 
 ```{bash}
 cat << EOT > tmp/run_api_post.R
@@ -847,8 +897,21 @@ wait_for_api("tmp/POST_API_LOG.log")
 
 ```{bash}
 curl -X GET "http://127.0.0.1:8113/experiments/1" -H "accept: application/json" --silent
+```
+
+`/genes_expression` allows to filter by specific `ENSG`. It can be provided using a query string:
+
+```{bash}
 curl -X GET "http://127.0.0.1:8113/experiments/1/genes_expression?ensg=ENSG00000133703" -H "accept: application/json" --silent
 ```
+
+For sending a vector, you can use the same argument many times as show below:
+
+```{bash}
+curl -X GET "http://127.0.0.1:8113/experiments/1/genes_expression?ensg=ENSG00000133703&ensg=ENSG00000268173" -H "accept: application/json" --silent
+```
+
+Now, let's prepare a `json` to be added to the database using a `POST` request.
 
 ```{r}
 input_to_api <- list(
@@ -859,8 +922,11 @@ input_to_api <- list(
 jsonlite::toJSON(input_to_api, auto_unbox = TRUE, pretty = TRUE)
 ```
 
+And in the last step, the request is sent with the `json` containing all the required 
+information.
+
 ```{bash}
-curl -X POST "http://127.0.0.1:8113/experiments" --data '
+curl -X POST "http://127.0.0.1:8113/experiments" --data --silent '
 {
   "experiment": "my_second_experiment",
   "expressions": [
@@ -890,12 +956,48 @@ curl -X POST "http://127.0.0.1:8113/experiments" --data '
 
 ```
 
+And reading the output:
 
+```{bash}
+curl -X GET "http://127.0.0.1:8113/experiments/2/genes_expression" -H "accept: application/json" --silent
+```
 
-# Summary
+One last thing, just for a pure joy of using bash `parallel` and some other console tools. The script below,
+runs `curl` 500 times on 8 workers and logs some performace information. Then I use some simple tools 
+to perform basic analysis:
 
+```{bash}
+# https://stackoverflow.com/questions/18215389/how-do-i-measure-request-and-response-times-at-once-using-curl
+
+seq 500 | parallel --joblog tmp/joblog.txt -n0 -j8 "curl \
+    -X GET 'http://127.0.0.1:8113/experiments/1/genes_expression?ensg=ENSG00000133703' \
+    -H 'accept: application/json' --silent \
+    -w '%{time_connect} %{time_starttransfer} %{time_total}\n' \
+    -o /dev/null" > tmp/all_times
+```
+
+Calculate mean connection time, time to first byte transferred and total time of for a request:
+```{bash}
+LC_NUMERIC=C # for some reason Rstudio changes the numeric locale!
+awk '{N+=1; CONNECT+=$1; TTFB+=$2; TOTAL+=$3} END {printf "Connect: %.3gs TTFB: %.2gs TOTAL: %.3gs\n", CONNECT/N, TTFB/N, TOTAL/N}' tmp/all_times
+```
+
+As a bonus - number of requests processed each second (to be precise I use number of requests started each second by `parallel`).
+As you can see, this API can handle `14-15req/sec`. Can you explain what each command in this bash pipeline does?
+
+```{bash}
+LC_NUMERIC=C
+tail -n +2 tmp/joblog.txt | cut -f 3 | xargs printf "%.0f\n"| 
+  sort | uniq -c | tr -s " " | cut -f2 -d " " | sort |
+  awk '{a[i++]=$0} END {print (i%2==0)?(a[int(i/2)-1]+a[int(i/2)])/2:a[int(i/2)]}'
+  
+```
 
 # Clean-up
+
+To keep the system clean, I kill all the processes started in the background. To do that I use
+the PID files created when they were started. Stopping `redis` is a little more complicated, because I need
+to extract its `process_id` from the `cli`.
 
 ```{bash}
 # Kill R processes
@@ -904,4 +1006,13 @@ for f in tmp/*_PID; do echo $f && kill -15 $(cat $f); done
 # Kill redis-server
 kill -15 $(redis-cli INFO | grep process_id | cut -d":" -f2 | sed -e "s/\r//g")
 ```
+
+
+# Summary
+
+The topics covered in this post should be treated as a starting point for further study. Here's a bunch of links that you might find useful:
+
+- https://posit.co/blog/plumber-v1-1-0/#parallel-exec - `plumber` can use `async` workers. It might be an easy way to scale-up your API, but it might be not enough for heavy-workload environment.
+- https://blog.bytebytego.com/p/why-is-restful-api-so-popular - some basic information about what RESTful API are popular.
+- https://blog.bytebytego.com/p/ep53-design-effective-and-safe-apis - this post contains a simple iconography showing some good practices in API design.
 
