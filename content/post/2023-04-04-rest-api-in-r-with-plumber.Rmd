@@ -1,8 +1,8 @@
 ---
 title: REST API in R with plumber
-author: ~
+author: Zygmunt Zawadzki
+output: html_document
 date: '2023-04-04'
-slug: rest-api-in-r-with-plumber
 tags:
   - rpkg-plumber
   - rpkg-redux
@@ -14,18 +14,15 @@ tags:
   - cache
 ---
 
-
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, message = FALSE)
 ```
 
 # API and R
 
-
 Nowadays, it's pretty much expected that software comes with an HTTP API interface. Every programming language out there offers a way to expose APIs or make GET/POST/PUT requests, including `R`. In this post, I'll show you how to create an API using the plumber package. Plus, I'll give you tips on how to make it more production ready - I'll tackle scalability, statelessness, caching, and load balancing. You'll even see how to consume your API with other tools like `python`, `curl`, and the R own `httr` package.
 
 *By the way, you might notice that in some parts of the code, I've included TODO comments. I'm not promising to update this post later (although I might!). The comments are just there to get you thinking about how you might expand on this in a real-world environment.*
-
 
 ## Some preparation
 
