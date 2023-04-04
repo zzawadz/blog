@@ -35,7 +35,7 @@ The whole document has been created using `rmarkdown`. It means that you take th
 # The function below is used to get the content of code chunk and 
 # output it to a file to make it available for the `plumber` package.
 write_chunk_file <- function(chunk_name, dest_file) {
-  lines <- readLines("api.Rmd", warn = FALSE)  
+  lines <- readLines("2023-04-04-rest-api-in-r-with-plumber.Rmd", warn = FALSE)  
   
   line_start <- grep(lines, pattern = paste("```\\{r", chunk_name))+1
   line_end <- grep(lines, pattern = "```")
@@ -88,6 +88,7 @@ wait_for_redis <- function(timeout = 60, check_every = 1) {
   
 }
 
+dir.create("tmp")
 wait_for_redis()
 ```
 
@@ -1002,6 +1003,8 @@ for f in tmp/*_PID; do echo $f && kill -15 $(cat $f); done
 
 # Kill redis-server
 kill -15 $(redis-cli INFO | grep process_id | cut -d":" -f2 | sed -e "s/\r//g")
+
+rm -rf tmp
 ```
 
 
