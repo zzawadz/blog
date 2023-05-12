@@ -1,0 +1,296 @@
+---
+title: Notes on defensive programming in R
+author: Zygmunt Zawadzki
+date: '2023-05-11'
+slug: notes-on-defensive-programming-in-r
+tags:
+  - R
+  - rpkg-checkmate
+---
+
+## Get familiar with `checkmate` package.
+
+```{r}
+checkmate::assert_integer(1L)
+checkmate::assert_integerish(1)
+checkmate::assert_integerish(1.3)
+
+checkmate::check_double(20)
+checkmate::check_double(20L)
+```
+
+## Quirks with `[[`
+
+```{r}
+x <- list(aba = 3, ab = 2)
+x$a
+
+x <- list(aba = 3)
+x$a
+
+x[["aa"]]
+
+y <- c(aba = 3, ab = 3)
+y[["ab"]]
+y[["aa"]]
+
+purrr::pluck(x, "aba")
+purrr::chuck(x, "ab")
+```
+
+```{r}
+library(magrittr)
+
+fn <- function(iris) {
+  checkmate::assert_names(colnames(iris), must.include = c("Species", "Sepal.Length"))
+  res <- iris %>% dplyr::group_by(Species) %>% dplyr::mutate(SL_mean = mean(Sepal.Length)) 
+  res
+}
+
+res <- fn(iris)
+class(res)
+
+fn <- function(iris) {
+  checkmate::assert_names(colnames(iris), must.include = c("Species", "Sepal.Length"))
+  res <- iris %>% dplyr::group_by(Species) %>% dplyr::mutate(SL_mean = mean(Sepal.Length)) 
+  res %>% dplyr::ungroup()
+}
+
+iris %>% dplyr::group_by(Species, Petal.Length > 20) %>% dplyr::summarise(SL_mean = mean(Sepal.Length), .groups = "drop")
+
+```
+
+## When working with matricies always use `drop = TRUE`
+
+```{r, error=TRUE}
+mat <- cbind(c(1,1,1), c(1,0,3))
+
+colMeans(mat)
+x1 <- mat[rowSums(mat) > 1,]
+x2 <- mat[rowSums(mat) > 2,]
+
+colMeans(x1)
+colMeans(x2)
+```
+```{r}
+
+checkmate::assert_matrix(x1, any.missing = FALSE, min.rows = 2)
+
+checkmate::check_matrix(x1)
+isTRUE(checkmate::check_matrix(x2))
+
+
+
+```
+
+```{r}
+x1 <- tryCatch({
+  rnorm(10)
+}, error = function(e) e, finally = print("Ready"))
+
+x2 <- tryCatch({
+  rnorm(NULL)
+}, error = function(e) {
+  print("Hm!")
+  rnorm(10)
+}, finally = print("Ready"))
+
+x3 <- try(stop(1))
+inherits(x2, "try-error")
+?assertthat::is.error(x2)
+
+withRestarts(stop("A"), abort = function() {})
+
+```
+
+http://adv-r.had.co.nz/beyond-exception-handling.html
+
+
+
+```{r}
+
+condition <- function(subclass, message, call = sys.call(-1), ...) {
+  structure(
+    class = c(subclass, "condition"),
+    list(message = message, call = call, ...)
+  )
+}
+
+malformed_log_entry_error <- function(text) {
+  msg <- paste0("Malformed log entry: ", text)
+  condition(c("malformed_log_entry_error", "error"),
+    message = msg, 
+    text = text,
+    date = Sys.time()
+  )
+}
+
+log_entry_does_not_exists_error <- function(text) {
+  msg <- "log entry does not exists!"
+  condition(c("log_entry_does_not_exists_error", "error"),
+    message = msg, 
+    text = text,
+    date = Sys.time()
+  )
+}
+
+log_entry_does_not_exists_error("test")
+malformed_log_entry_error("test")$date
+
+new_log_entry <- function(text) structure(list(entry = text, nchar = nchar(text)), class = "log_entry")
+print.log_entry <- function(x, ...) cat("Entry: ", x$entry, ", Nchar:", x$nchar)
+new_log_entry("1")
+
+parse_log_entry <- function(text) {
+  if (nchar(text) > 5) {
+    stop(malformed_log_entry_error(text))
+  } else if(nchar(text) == 0) {
+    stop(log_entry_does_not_exists_error(""))
+  }
+  
+  new_log_entry(text)
+}
+
+parse_log_entry("a")
+parse_log_entry("abcde")
+
+lapply(
+  c("a", "abc"),
+  parse_log_entry
+)
+
+lapply(
+  c("a", "abc", "", "abcdefg"),
+  function(text) {
+   tryCatch(
+     parse_log_entry(text),
+     error = function(e) NULL
+   ) 
+  }
+)
+
+x <- lapply(
+  c("a", "abc", "", "abcdefg"),
+  function(text) {
+   tryCatch(
+     parse_log_entry(text),
+     log_entry_does_not_exists_error = function(e) { cat("Error date: ", as.character(e$date)); print(dput(e$text)) ; new_log_entry(e$text) },
+     malformed_log_entry_error = function(e) new_log_entry("yyy")
+   )
+  }
+)
+
+
+lapply(c("a", "abc", "", "abcdefg"), function(text) {
+  withRestarts(
+    parse_log_entry(text),
+    skip_log_entry = function(e) NULL
+  )
+})
+
+
+logs <- c("a", "abc", "", "abcdefg")
+
+
+parse_log_entry <- function(text) {
+  if (nchar(text) < 5) {
+    return(new_log_entry(text))
+  }
+  
+  withRestarts(
+    stop(malformed_log_entry_error(text)),
+    use_value = function(x) x,
+    reparse_entry = function(fixed_text) parse_log_entry(fixed_text)
+  )
+}
+parse_log_entry("abcdef")
+use_value <- function(x) invokeRestart("use_value", x)
+  
+
+
+f <- function() {
+  stop("foo")
+}
+
+withCallingHandlers(
+  {
+    withRestarts({
+        f()
+        1
+      },
+      my_restart = function() {
+        message("==== my_restart ====")
+        # print(sys.calls())
+        2
+      }
+    )
+  },
+  error = function(e) {
+    message("==== withCallingHandler: error ====")
+    # print(sys.calls())
+    print(e)
+    print(computeRestarts())
+    invokeRestart("my_restart")
+  }
+)
+
+
+withCallingHandlers(
+  message = function(cnd) message("b"),
+  withCallingHandlers(
+    message = function(cnd) message("a"),
+    message("c")
+  )
+)
+
+tryCatch(
+  message = function(cnd) cat("Caught a message!\n"), 
+  {
+    message("Someone there?")
+    message("Why, yes!")
+  }
+)
+withCallingHandlers(
+  message = function(cnd) cat("Caught a message!\n"), 
+  {
+    message("Someone there?")
+    message("Why, yes!")
+  }
+)
+
+ff <- function(x) {
+  x+1
+  x+2
+  x+3
+}
+
+debug(ff)
+ff()
+undebug(ff)
+
+
+ggplot2::geom_boxplot
+
+```
+```{r}
+
+disc <- FSelectorRcpp::discretize(Species ~ ., iris)
+head(FSelectorRcpp::discretize_transform(disc, iris))
+
+debug(FSelectorRcpp:::extract_discretize_transformer)
+undebug(FSelectorRcpp:::extract_discretize_transformer)
+trace(sum)
+untrace(sum)
+hist(rnorm(100)) # shows about 3-4 calls to sum()
+
+untrace(FSelectorRcpp:::extract_discretize_transformer)
+
+trace(FSelectorRcpp:::extract_discretize_transformer, tracer = quote({
+  print(Sys.Date())
+  print(nrow(disc))
+}), exit = quote({
+  env <- environment()
+  assign(".xd", value = env, pos = .GlobalEnv)
+}))
+FSelectorRcpp::discretize_transform(disc, iris)
+```
